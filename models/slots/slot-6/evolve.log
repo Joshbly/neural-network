@@ -28,3 +28,6 @@ gen 21 | 7.4 min | champion D4 | race points by design: C 0.35 (10 wins)  D 0.33
 gen 22 | 6.8 min | champion E4·3 | race points by design: D 0.36 (7 wins)  E 0.34 (6 wins)  B 0.29 (4 wins)  C 0.29 (4 wins)  A 0.28 (3 wins) | replaced D4·3 → D4·4
 [evolve] 20 pros, generation 22, 17 threads on 1 machine(s), 48 pairs × 5 rounds per generation
 [evolve] 20 pros, generation 22, 17 threads on 1 machine(s), 48 pairs × 5 rounds per generation
+[evolve] 20 pros, generation 22, 17 threads on 1 machine(s), 48 pairs × 5 rounds per generation
+gen 23 | 7.1 min | champion D4 | race points by design: C 0.36 (9 wins)  D 0.35 (8 wins)  A 0.29 (3 wins)  E 0.29 (2 wins)  B 0.28 (2 wins)
+[evolve] 20 pros, generation 23, 17 threads on 1 machine(s), 48 pairs × 5 rounds per generation

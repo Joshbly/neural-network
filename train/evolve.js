@@ -297,11 +297,14 @@ function scenarios(st, ai, rng, gen, r) {
   // duel where only the winner scores: starting behind, the only way to score is to get past (out-brake it
   // or spin it round); starting in front, the only way is to hold it off. Rounds alternate attack and defence.
   if (NASCAR) {
-    // on the ovals: one race in a superspeedway pack, one on another oval, a solo run and a duel elsewhere
+    // on the ovals: one race in a superspeedway pack, one on another oval, a solo run and a duel elsewhere.
+    // One race starts somewhere in the front half and the other in the back half, swapping each round, so
+    // both kinds of oval get practised from every part of the grid, as the tournament's shuffled grids demand.
     const [pack, other] = E.practiceOvals(gen, r), solo = E.pickFrom(E.OTHER_OVALS(), `tt${gen}:${r}`), duel = E.pickFrom(E.OTHER_OVALS(), `duel${gen}:${r}`);
+    const half = opt.field / 2, front = Math.floor(rng() * half), back = half + Math.floor(rng() * half), packFront = (gen + r) % 2 === 0;
     return [
-      { kind: 'race', ...onTrack(pack, 0, PRACTICE_M), rivals: others, slot: Math.floor(rng() * 2) },
-      { kind: 'race', ...onTrack(other, 0, PRACTICE_M), rivals: others, slot: opt.field - 1 - Math.floor(rng() * 3) },
+      { kind: 'race', ...onTrack(pack, 0, PRACTICE_M), rivals: others, slot: packFront ? front : back },
+      { kind: 'race', ...onTrack(other, 0, PRACTICE_M), rivals: others, slot: packFront ? back : front },
       { kind: 'tt', ...onTrack(solo, 0, PRACTICE_M) },
       { kind: 'race', duel: true, ...onTrack(duel, 0, DUEL_M), rivals: [others[0]], slot: (gen + r) % 2 },
     ];
