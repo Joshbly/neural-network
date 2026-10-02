@@ -36,6 +36,15 @@ const practiceTrack = (gen, round, k) => 10_000_000 + (gen * 16 + round) * 8 + k
 const tourneyTrack = (gen, k) => 5_000_000 + gen * 8 + k;
 const TOURNEY_TRACKS = 8, BENCH_TRACKS = range(931, 8);
 const TOURNEY_RACES = 24, BENCH_RACES = 8, RACE_LAPS = 10, DUEL_LAPS = 2;
+// A save races normal tracks or the real NASCAR ovals, in normal cars or stock cars (meta.json; any mix
+// trains). On the ovals a race is a distance, not a lap count: practice about 5.5 km (two laps of Daytona,
+// six of Martinsville), duels 3 km, the season's races 24 km, so a short track isn't over in seconds.
+const META = (() => { try { return JSON.parse(fs.readFileSync(path.join(DIR, 'meta.json'), 'utf8')); } catch { return {}; } })();
+const MODE = { tracks: META.tracks ?? 'normal', cars: META.cars ?? (META.tracks === 'nascar' ? 'stock' : 'normal') };
+const NASCAR = MODE.tracks === 'nascar', CARS = MODE.cars === 'normal' && !NASCAR ? {} : { cars: MODE.cars };
+const PRACTICE_M = 5500, DUEL_M = 3000, SEASON_M = 24000, NASCAR_FIELD = 40;
+// where a race is: a generated track's seed, or a real oval and a lap count for the distance
+const onTrack = (seedOrId, laps, metres) => NASCAR ? { trackId: seedOrId, laps: E.lapsFor(seedOrId, metres), ...CARS } : { trackSeed: seedOrId, laps, ...CARS };
 // avg finish is a share of the field (0 = always first); 24 races put roughly ±0.06 of noise on it
 const MARGIN = 0.1, SETTLE = 2;
 const SPECIES = { '16-10': 'A', '32-24-16': 'B', '64-64': 'C', '64-64-64': 'D', '128-128': 'E' };
@@ -194,7 +203,7 @@ function load() {
 const DESIGNS = { A: [16, 10], B: [32, 24, 16], C: [64, 64], D: [64, 64, 64], E: [128, 128] };
 
 function found() {
-  const meta = fs.existsSync(path.join(DIR, 'meta.json')) ? JSON.parse(fs.readFileSync(path.join(DIR, 'meta.json'), 'utf8')) : {};
+  const meta = META;
   const start = { started: new Date().toISOString(), generation: 0, clones: {}, history: [] };
   if (meta.start === 'scratch') {
     // Twenty random brains, four independent ones per design. All they start with is the standard
@@ -258,13 +267,24 @@ function scenarios(st, ai, rng, gen, r) {
   // one start from the front, one from the back, plus a solo run so raw pace never erodes, plus a two-car
   // duel where only the winner scores: starting behind, the only way to score is to get past (out-brake it
   // or spin it round); starting in front, the only way is to hold it off. Rounds alternate attack and defence.
+  if (NASCAR) {
+    // on the ovals: one race in a superspeedway pack, one on another oval, a solo run and a duel elsewhere
+    const [pack, other] = E.practiceOvals(gen, r), solo = E.pickFrom(E.OTHER_OVALS(), `tt${gen}:${r}`), duel = E.pickFrom(E.OTHER_OVALS(), `duel${gen}:${r}`);
+    return [
+      { kind: 'race', ...onTrack(pack, 0, PRACTICE_M), rivals: others, slot: Math.floor(rng() * 2) },
+      { kind: 'race', ...onTrack(other, 0, PRACTICE_M), rivals: others, slot: opt.field - 1 - Math.floor(rng() * 3) },
+      { kind: 'tt', ...onTrack(solo, 0, PRACTICE_M) },
+      { kind: 'race', duel: true, ...onTrack(duel, 0, DUEL_M), rivals: [others[0]], slot: (gen + r) % 2 },
+    ];
+  }
   return [
-    ...range(0, opt.races).map(k => ({ kind: 'race', trackSeed: practiceTrack(gen, r, k), laps: opt.laps, rivals: others,
+    ...range(0, opt.races).map(k => ({ kind: 'race', ...onTrack(practiceTrack(gen, r, k), opt.laps), rivals: others,
       slot: k % 2 ? opt.field - 1 - Math.floor(rng() * 3) : Math.floor(rng() * 2) })),
-    { kind: 'tt', trackSeed: practiceTrack(gen, r, opt.races), laps: opt.laps },
-    { kind: 'race', duel: true, trackSeed: practiceTrack(gen, r, opt.races + 1), laps: DUEL_LAPS, rivals: [others[0]], slot: (gen + r) % 2 },
+    { kind: 'tt', ...onTrack(practiceTrack(gen, r, opt.races), opt.laps) },
+    { kind: 'race', duel: true, ...onTrack(practiceTrack(gen, r, opt.races + 1), DUEL_LAPS), rivals: [others[0]], slot: (gen + r) % 2 },
   ];
 }
+const where = sc => sc.trackId ?? sc.trackSeed;
 
 function step(a, seeds, outs, scenarioCount) {
   const n = a.genes.length, shaped = new Float32Array(outs.length);
@@ -303,10 +323,10 @@ async function train(st, gen) {
       mean: sum.map((s, i) => done[i] ? round(s / done[i]) : null), best: best.map(b => b == null ? null : round(b)),
     });
     const started = Date.now(), plan = {
-      laps: opt.laps, field: opt.field, pairs: opt.pairs, tracks: plans[0].map(sc => sc.trackSeed),
+      laps: NASCAR ? plans[0].map(sc => sc.laps) : opt.laps, field: opt.field, pairs: opt.pairs, tracks: plans[0].map(where), mode: MODE,
       pros: plans.map((scs, ai) => ({ name: st.population[ai].name, rivals: scs[0].rivals.map(i => rosterName(st, i)),
         slots: scs.filter(sc => sc.kind === 'race' && !sc.duel).map(sc => sc.slot),
-        duels: scs.filter(sc => sc.duel).map(sc => ({ rival: rosterName(st, sc.rivals[0]), slot: sc.slot, track: sc.trackSeed, laps: sc.laps })) })),
+        duels: scs.filter(sc => sc.duel).map(sc => ({ rival: rosterName(st, sc.rivals[0]), slot: sc.slot, track: where(sc), laps: sc.laps })) })),
     };
     const update = () => {
       const runs = done.reduce((a, b) => a + b, 0) * perCopy;
@@ -341,19 +361,29 @@ async function train(st, gen) {
 // ---- tournament: everyone races everyone, full distance ----
 async function tournament(st, gen) {
   writeJson(LIVE, { generation: gen, round: null, population: packed(st), hall: pack(st.hall) });
-  report({ generation: gen, phase: 'tournament', practice: null, tournament: { laps: RACE_LAPS, tracks: range(0, TOURNEY_TRACKS).map(k => tourneyTrack(gen, k)) } });
+  // the tournament's tracks: 8 new generated tracks, or on the ovals an 8-race season (two superspeedways)
+  const venues = NASCAR ? E.seasonOvals(gen) : range(0, TOURNEY_TRACKS).map(k => tourneyTrack(gen, k));
+  const raceAt = k => ({ ...onTrack(venues[k % venues.length], RACE_LAPS, SEASON_M), ...NASCAR && { stages: true } });
+  report({ generation: gen, phase: 'tournament', practice: null, tournament: { laps: NASCAR ? venues.map((_, k) => raceAt(k).laps) : RACE_LAPS, tracks: venues, mode: MODE } });
   broadcast({ type: 'roster', drivers: roster(st) });
-  // a grid holds 20 cars: a bigger population races in random fields of 20, enough races for ~24 each
-  const rng = E.mulberry32(gen * 7919 + 17), size = st.population.length, grid = Math.min(size, 20);
+  // a grid holds 20 cars (40 on the ovals): a bigger population races in random fields, enough races for ~24 each
+  const rng = E.mulberry32(gen * 7919 + 17), size = st.population.length, grid = Math.min(size, NASCAR ? NASCAR_FIELD : 20);
   const raceCount = Math.ceil(TOURNEY_RACES * size / grid);
-  const races = range(0, raceCount).map(r => ({ kind: 'field', trackSeed: tourneyTrack(gen, r % TOURNEY_TRACKS), laps: RACE_LAPS,
-    entrants: shuffle(range(0, size), rng).slice(0, grid) }));
+  const races = range(0, raceCount).map(r => ({ kind: 'field', ...raceAt(r), entrants: shuffle(range(0, size), rng).slice(0, grid) }));
   const results = await Promise.all(races.map(submit));
-  const tally = st.population.map(() => ({ places: [], points: [], wins: 0, podiums: 0, aero: [], laps: [], rammed: [], passes: [], walls: [], tail: [], led: [] }));
+  const tally = st.population.map(() => ({ places: [], points: [], wins: 0, podiums: 0, aero: [], laps: [], rammed: [], passes: [], walls: [], tail: [], led: [],
+    stage: [], cautions: [], penalties: [], below: [] }));
   races.forEach((race, k) => results[k].forEach((res, slot) => {
     const t = tally[race.entrants[slot]];
     t.places.push(res.place / (race.entrants.length - 1));
-    t.points.push(racePoints(res.place, race.entrants.length));
+    // stage points count a little: 10 for winning a stage is worth a tenth of a race win
+    t.points.push(racePoints(res.place, race.entrants.length) + (res.stagePoints ? res.stagePoints / 100 : 0));
+    if (res.stagePoints !== undefined) {
+      t.stage.push(res.stagePoints);
+      t.cautions.push(res.cautionsCaused);
+      t.penalties.push(res.penalties);
+      t.below.push(res.belowLine);
+    }
     t.led.push(res.led);
     t.wins += res.place === 0;
     t.podiums += res.place < 3;
@@ -369,6 +399,8 @@ async function tournament(st, gen) {
     aero: round(mean(tally[i].aero)), lap: round(mean(tally[i].laps), 2), rammed: round(mean(tally[i].rammed), 2),
     passes: round(mean(tally[i].passes), 1), walls: round(mean(tally[i].walls), 1), tail: round(mean(tally[i].tail)),
     points: round(mean(tally[i].points)), winRate: round(tally[i].wins / tally[i].places.length), led: round(mean(tally[i].led)),
+    ...NASCAR && { stagePoints: round(mean(tally[i].stage), 1), cautionsCaused: round(mean(tally[i].cautions), 2),
+      penalties: round(mean(tally[i].penalties), 2), belowLine: round(mean(tally[i].below)) },
   }));
   st.population.forEach((a, i) => {
     a.wins += tally[i].wins;
@@ -385,7 +417,9 @@ async function tournament(st, gen) {
   const ours = st.yardstick?.length
     ? agents.map((g, i) => ({ ...g, i })).sort((x, y) => y.points - x.points).slice(0, panel.length).map(g => g.i)
     : Object.values(Object.groupBy(agents.map((g, i) => ({ ...g, i })), g => g.species)).flatMap(group => group.sort((x, y) => y.points - x.points).slice(0, 2).map(g => g.i));
-  const benchRaces = range(0, BENCH_RACES).map(r => ({ kind: 'field', trackSeed: BENCH_TRACKS[r], laps: RACE_LAPS, entrants: shuffle([...ours, ...panel], rng) }));
+  const benchVenues = NASCAR ? E.YARDSTICK_OVALS : BENCH_TRACKS;
+  const benchRaces = range(0, BENCH_RACES).map(r => ({ kind: 'field', ...onTrack(benchVenues[r], RACE_LAPS, SEASON_M), ...NASCAR && { stages: true },
+    entrants: shuffle([...ours, ...panel], rng) }));
   const bench = await Promise.all(benchRaces.map(submit));
   const isNew = i => i < size, field = ours.length + panel.length;
   const benchPlaces = side => mean(benchRaces.flatMap((race, k) => bench[k].filter((_, s) => isNew(race.entrants[s]) === side).map(res => res.place / (field - 1))));

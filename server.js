@@ -162,18 +162,34 @@ async function slotAction(params) {
     if (source && !validId(source)) return [400, { error: 'No such slot to copy.' }];
     const free = Array.from({ length: MAX_SLOTS }, (_, i) => `slot-${i + 1}`).find(s => !ids.includes(s)), dir = slotDir(free);
     fs.mkdirSync(path.join(dir, 'generations'), { recursive: true });
-    const meta = { name: cleanName(params.get('name')) || `Save ${free.slice(5)}`, created: new Date().toISOString(), from: 'the originals' };
+    // a save races normal tracks or the NASCAR ovals, in normal cars or stock cars; a copy keeps its source's
+    // unless told otherwise
+    const sourceMeta = source ? readJson(path.join(slotDir(source), 'meta.json')) || {} : {};
+    const tracks = params.get('tracks') ?? sourceMeta.tracks ?? 'normal';
+    if (!['normal', 'nascar'].includes(tracks)) return [400, { error: 'Unknown track set.' }];
+    const cars = params.get('cars') ?? (tracks === (sourceMeta.tracks ?? 'normal') ? sourceMeta.cars : null) ?? (tracks === 'nascar' ? 'stock' : 'normal');
+    if (!['normal', 'stock'].includes(cars)) return [400, { error: 'Unknown cars.' }];
+    const label = tracks === 'nascar' ? 'NASCAR' : 'Save';
+    const meta = { name: cleanName(params.get('name')) || `${label} ${free.slice(5)}`, created: new Date().toISOString(), from: 'the originals', tracks, cars };
     // random brains: the engine founds the slot from this seed instead of the originals
     if (from === 'scratch') Object.assign(meta, { from: 'scratch (random brains)', start: 'scratch', seed: 1 + Math.floor(Math.random() * 1e6) });
     if (source) {
       // a copy starts from the source's latest generation and carries its history forward
       const state = readJson(path.join(slotDir(source), 'state.json'));
       if (!state) return [409, { error: 'That slot has no finished generation to copy yet.' }];
-      fs.copyFileSync(path.join(slotDir(source), 'state.json'), path.join(dir, 'state.json'));
-      fs.copyFileSync(path.join(slotDir(source), 'summary.json'), path.join(dir, 'summary.json'));
-      const snapshot = `gen-${String(state.generation).padStart(4, '0')}.json`;
-      if (fs.existsSync(path.join(slotDir(source), 'generations', snapshot))) fs.copyFileSync(path.join(slotDir(source), 'generations', snapshot), path.join(dir, 'generations', snapshot));
-      meta.from = `${readJson(path.join(slotDir(source), 'meta.json'))?.name || source}, generation ${state.generation}`;
+      meta.from = `${sourceMeta.name || source}, generation ${state.generation}`;
+      if (tracks !== (sourceMeta.tracks ?? 'normal') || cars !== (sourceMeta.cars ?? (tracks === 'nascar' ? 'stock' : 'normal'))) {
+        // into another mode: the same brains, but their old results mean nothing here, so it starts again at
+        // generation 0 with a fresh tournament in the new mode (and nobody counts as newly born)
+        state.population.forEach(a => Object.assign(a, { born: 0, recentPoints: [], last: undefined }));
+        writeJson(path.join(dir, 'state.json'), { ...state, generation: 0, history: [], practiceHistory: [], practiceRuns: 0, convertedFrom: meta.from });
+        meta.from += ` (was ${sourceMeta.tracks === 'nascar' ? 'NASCAR' : 'normal'} tracks, ${sourceMeta.cars ?? 'normal'} cars)`;
+      } else {
+        fs.copyFileSync(path.join(slotDir(source), 'state.json'), path.join(dir, 'state.json'));
+        fs.copyFileSync(path.join(slotDir(source), 'summary.json'), path.join(dir, 'summary.json'));
+        const snapshot = `gen-${String(state.generation).padStart(4, '0')}.json`;
+        if (fs.existsSync(path.join(slotDir(source), 'generations', snapshot))) fs.copyFileSync(path.join(slotDir(source), 'generations', snapshot), path.join(dir, 'generations', snapshot));
+      }
     }
     writeJson(path.join(dir, 'meta.json'), meta);
     return [200, { id: free }];

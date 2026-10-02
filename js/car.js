@@ -3,7 +3,7 @@ const WALL_RAY_DEG = [-90, -50, -20, 0, 20, 50, 90];
 // the rear three are mirrors: without them a leader can't see an attack coming, let alone block it
 const CAR_RAY_DEG = [-150, -90, -40, -12, 0, 12, 40, 90, 150, 180];
 const WALL_RAYS = WALL_RAY_DEG.map(deg), CAR_RAYS = CAR_RAY_DEG.map(deg);
-const FRONT_CAR_RAYS = CAR_RAY_DEG.flatMap((d, i) => Math.abs(d) <= 12 ? [i] : []);
+const FRONT_CAR_RAY = CAR_RAY_DEG.map(d => Math.abs(d) <= 12);
 const REAR_CAR_RAYS = CAR_RAY_DEG.flatMap((d, i) => Math.abs(d) >= 150 ? [i] : []);
 const WALL_RAY_LEN = 260, CAR_RAY_LEN = 200, ATTACK_RANGE = 90;
 // centreline points the driver "looks at" ahead, in track units
@@ -89,6 +89,55 @@ const BENDS = 2.5, WRECKS = 6.5;
 // fenders and quarter panels drag and rub the tyres. Bent suspension costs mechanical grip.
 const AERO_LOSS = 0.15, NOSE_DRAG = 0.03, TAIL_DRAG = 0.015, FLANK_DRAG = 0.03, OVERHEAT = 0.02, BENT_GRIP = 0.1;
 
+// Every car carries a physics spec. NORMAL is the original arcade car (the constants above). The stock cars
+// are Next Gen Cup cars at the same scale (1 unit = 0.25 m, 60 steps a second, forces per unit mass), tuned
+// by train/nascar/calibrate.js to real pole speeds: the 670 hp package everywhere, the 510 hp tapered-spacer
+// ("restrictor plate") package with its big spoiler at the superspeedways, where the draft decides everything.
+const G = 9.81 / 0.25 / 3600;   // gravity, units/step^2
+const withDerived = spec => ({ ...spec, inertia: (spec.len ** 2 + spec.wid ** 2) / 12, axle: spec.wheelbase / 2 });
+const NORMAL = withDerived({
+  name: 'normal', stock: false, len: CAR_LEN, wid: CAR_WID, bodyX: BODY_X, bodyR: BODY_R, wheelbase: WHEELBASE,
+  power: POWER, traction: TRACTION, brake: BRAKE, reverse: REVERSE, reverseMax: REVERSE_MAX, aero: AERO, roll: ROLL,
+  grip: GRIP, downforce: DOWNFORCE, maxSteer: MAX_STEER, steerRate: STEER_RATE, loadTransfer: LOAD_TRANSFER,
+  draftDrag: DRAFT_DRAG, dirtyAir: DIRTY_AIR, pushDrag: PUSH_DRAG, sideDrag: SIDE_DRAG, draftLen: 220,
+  // input scales: top speed, a big slide, a fast rotation; road-ahead reach
+  speedNorm: MAX_SPEED, slideNorm: 3, yawNorm: 0.08, slipNorm: 2, lookScale: 1, wakeSpeed: 6,
+  // a car that covers less than this in STALL_WINDOW steps has stalled
+  stallMin: STALL_MIN,
+  // tyre grip grows with load to this power (1: in proportion)
+  loadSens: 1,
+});
+// 4.97 m x 1.99 m, 110 in wheelbase; ~1590 kg with driver; weight shifts about 14% per g of braking.
+// Four body circles: with three, two cars side by side could sink a third of a car's width into each other.
+// steerSpeed: the wheels' reach shrinks with speed, full lock at walking pace and about 2.5 degrees at 180 mph.
+// At that speed a stock car needs under a degree, so with full lock on tap at any speed a brain's whole
+// useful steering range was the first 1% of its output; this gives it about what the arcade cars have.
+// catchSlide: once the car is sliding, the reach grows by the slide angle, so a tail that steps out can
+// still be caught with opposite lock.
+const STOCK_BASE = {
+  stock: true, len: 20, wid: 8, bodyX: [-6, -2, 2, 6], bodyR: 4, wheelbase: 11.2,
+  traction: 0.009, brake: 0.016, reverse: 0.002, reverseMax: 0.3, roll: 2.6e-5, grip: 1.663 * G, downforce: 1.781e-4,
+  maxSteer: 0.45, steerSpeed: 1.8, catchSlide: 1, steerRate: 0.04, loadTransfer: 0.14 / G, speedNorm: 6.5, slideNorm: 1.5, yawNorm: 0.012, slipNorm: 1, lookScale: 1.5, wakeSpeed: 4,
+  stallMin: 60,
+  // real tyres: twice the load gives less than twice the grip, so steep banking helps less than the textbook
+  loadSens: 0.5,
+};
+// power from the engines' real output at the wheels; grip, downforce, load sensitivity and drag fitted to the
+// Next Gen Cup poles (train/nascar/calibrate.js: 2.7% RMS over 18 tracks on 670 hp, 0.9% over the plate tracks)
+const NASCAR_670 = withDerived({ ...STOCK_BASE, name: '670', power: 0.0205, aero: 6.886e-5, draftDrag: 0.2, dirtyAir: 0.35, pushDrag: 0.08, sideDrag: 0.06, draftLen: 260 });
+const NASCAR_PLATE = withDerived({ ...STOCK_BASE, name: 'plate', power: 0.0156, aero: 9.714e-5, draftDrag: 0.3, dirtyAir: 0.2, pushDrag: 0.12, sideDrag: 0.06, draftLen: 300 });
+// a stock car runs the plate package only where the rules require it
+const stockSpec = track => track.plate ? NASCAR_PLATE : NASCAR_670;
+// front-wheel angle at full steering, at this forward speed
+const steerLock = (P, forward, sideways = 0) => P.steerSpeed
+  ? Math.min(P.maxSteer, P.maxSteer / (1 + (forward / P.steerSpeed) ** 2) + P.catchSlide * Math.abs(Math.atan2(sideways, Math.abs(forward) + 1e-6)))
+  : P.maxSteer;
+const specFor = (cars, track) => cars === 'stock' ? stockSpec(track) : NORMAL;
+
+// off the racing surface: grip left, and how hard grass and sand drag (units/step^2)
+const SURFACE_GRIP = [1, 0.96, 0.45, 0.35, 0.9, 0.5];
+const SURFACE_DRAG = [0, 0, 0.3 * G, 0.65 * G, 0, 0.5 * G];
+
 const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
 const WALL_COS = WALL_RAYS.map(Math.cos), WALL_SIN = WALL_RAYS.map(Math.sin);
 const CAR_COS = CAR_RAYS.map(Math.cos), CAR_SIN = CAR_RAYS.map(Math.sin);
@@ -100,19 +149,30 @@ function wallImpulse(car, rx, ry, nx, ny) {
   if (vn >= 0) return 0;
   // a car leaning on the barrier shouldn't chatter; only real impacts rebound
   const bounce = vn < -RESTING ? WALL_BOUNCE : 0;
-  const rn = rx * ny - ry * nx, j = -(1 + bounce) * vn / (1 + rn * rn / INERTIA);
+  const inertia = car.spec.inertia, rn = rx * ny - ry * nx, j = -(1 + bounce) * vn / (1 + rn * rn / inertia);
   const tx = -ny, ty = nx, rt = rx * ty - ry * tx;
-  const jt = clamp(-(vx * tx + vy * ty) / (1 + rt * rt / INERTIA), -WALL_FRICTION * j, WALL_FRICTION * j);
+  const jt = clamp(-(vx * tx + vy * ty) / (1 + rt * rt / inertia), -WALL_FRICTION * j, WALL_FRICTION * j);
   car.vx += j * nx + jt * tx;
   car.vy += j * ny + jt * ty;
-  car.spin += (rn * j + rt * jt) / INERTIA;
+  car.spin += (rn * j + rt * jt) / inertia;
   car.scrape = Math.abs(jt);
   return j;
 }
 
+// a feedforward brain has no memory, so it can't infer closing speed from shrinking distances;
+// positive means the gap is shrinking, whether I'm catching the car ahead or the car behind is catching me
+function closingSpeed(car, other) {
+  if (!other) return 0;
+  const dx = other.x - car.x, dy = other.y - car.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+  return clamp(((car.vx - other.vx) * dx + (car.vy - other.vy) * dy) / d / 3, -1, 1);
+}
+
 class Car {
-  constructor(brain, track, slot, raceLaps) {
+  constructor(brain, track, slot, raceLaps, spec = NORMAL) {
     this.brain = brain;
+    this.spec = spec;
+    this.track = track;
+    this.surface = 0;
     this.slot = slot;
     this.raceLaps = raceLaps;
     this.inputs = new Float32Array(INPUT_COUNT);
@@ -127,6 +187,10 @@ class Car {
     this.finished = this.retired = this.braked = this.touchingWall = this.elite = this.human = false;
     // tailSteps: time glued to the bumper of the car ahead (within two lengths, weighted by how close)
     this.draftSteps = this.tailSteps = this.ledSteps = this.overtakes = this.passedBy = 0;
+    // race control (NASCAR ovals): laps handed back (lucky dog), laps run under yellow (they don't count), and
+    // whether the car is under its command
+    this.freeLaps = this.bonus = this.yellowLaps = 0;
+    this.paced = this.underYellow = this.greenAtLine = false;
     this.lastArc = track.progressAt(x, y);
     this.progress = this.lastArc > track.length / 2 ? this.lastArc - track.length : this.lastArc;
     this.gridOffset = -this.progress;
@@ -169,7 +233,7 @@ class Car {
     const zone = this.zoneFacing(dx, dy), over = j - HIT_THRESHOLD[kind];
     if (kind === 'car' && zone === 'front' && over > 0) this.rammed += over;
     // a side-on hit at a front or rear corner takes out that end's splitter or spoiler too
-    const end = zone === 'side' && Math.abs(along) > CAR_LEN / 4 ? (along > 0 ? 'front' : 'rear') : null;
+    const end = zone === 'side' && Math.abs(along) > this.spec.len / 4 ? (along > 0 ? 'front' : 'rear') : null;
     // door-to-door rubbing only dents sheet metal; grinding along the wall tears up whatever touches it
     const rub = SCRAPE_DAMAGE * scrape, impact = over > 0 ? HIT_DAMAGE[kind][zone] * over ** 1.5 : 0;
     const energy = kind === 'car' ? impact : impact + rub;
@@ -188,14 +252,29 @@ class Car {
   }
 
   sense(track, rivals) {
-    const c = Math.cos(this.angle), s = Math.sin(this.angle), inputs = this.inputs;
+    const c = Math.cos(this.angle), s = Math.sin(this.angle), inputs = this.inputs, P = this.spec;
 
-    // walls: sphere-trace each ray through the distance field
+    // walls: sphere-trace each ray through the distance field (track.distAt written out inline: this loop
+    // is the hottest code outside the brains). On an oval the "wall" a sensor sees is the paved edge: the
+    // outside wall, or the inside of the apron where the grass starts.
+    const field = track.field, cols = track.cols, rows = track.rows, cell = track.cell, outside = track.outside;
     for (let r = 0; r < WALL_RAYS.length; r++) {
       const dx = c * WALL_COS[r] - s * WALL_SIN[r], dy = s * WALL_COS[r] + c * WALL_SIN[r];
       let t = 0;
       for (let it = 0; it < 20 && t < WALL_RAY_LEN; it++) {
-        const d = track.distAt(this.x + dx * t, this.y + dy * t);
+        const x = this.x + dx * t, y = this.y + dy * t;
+        let d;
+        if (x < 0 || y < 0) d = outside;
+        else {
+          const gx = x / cell, gy = y / cell, ix = gx | 0, iy = gy | 0;
+          if (ix >= cols - 1 || iy >= rows - 1) d = outside;
+          else {
+            const fx = gx - ix, fy = gy - iy, i = iy * cols + ix, below = i + cols;
+            const top = field[i] + (field[i + 1] - field[i]) * fx;
+            const bottom = field[below] + (field[below + 1] - field[below]) * fx;
+            d = top + (bottom - top) * fy;
+          }
+        }
         if (d < 1) break;
         t += d > 1.5 ? d : 1.5;
       }
@@ -220,60 +299,61 @@ class Car {
       if (Math.min(apart, track.length - apart) > CAR_RAY_LEN + 80) continue;
       // the would-be attacker: nearest car behind, anywhere across the track, not just on a ray
       const fore = dx * c + dy * s, across = -dx * s + dy * c, d = Math.sqrt(dx * dx + dy * dy);
-      if (fore < -CAR_LEN / 2 && d < behindDist && Math.abs(across) < HALF_WIDTH * 2) [behind, behindDist, behindSide] = [other, d, across];
-      for (const ox of BODY_X) {
+      if (fore < -P.len / 2 && d < behindDist && Math.abs(across) < track.halfWidth * 2) {
+        behind = other;
+        behindDist = d;
+        behindSide = across;
+      }
+      const bodyR = other.spec.bodyR;
+      for (const ox of other.spec.bodyX) {
         const cx = dx + other.c * ox, cy = dy + other.s * ox, dist2 = cx * cx + cy * cy;
         for (let r = 0; r < CAR_RAYS.length; r++) {
           const along = cx * rayX[r] + cy * rayY[r];
           if (along <= 0) continue;
           const miss2 = dist2 - along * along;
-          if (miss2 > BODY_R * BODY_R) continue;
-          const t = Math.max(0, along - Math.sqrt(BODY_R * BODY_R - miss2));
+          if (miss2 > bodyR * bodyR) continue;
+          const t = Math.max(0, along - Math.sqrt(bodyR * bodyR - miss2));
           if (t < this.carSight[r]) this.carSight[r] = t;
-          if (t < aheadDist && FRONT_CAR_RAYS.includes(r)) [ahead, aheadDist] = [other, t];
+          if (t < aheadDist && FRONT_CAR_RAY[r]) {
+            ahead = other;
+            aheadDist = t;
+          }
         }
       }
     }
     for (let r = 0; r < CAR_RAYS.length; r++)
       inputs[IN.cars + r] = this.carSight[r] < CAR_RAY_LEN ? 1 / (1 + this.carSight[r] / 25) : 0;
-    // a feedforward brain has no memory, so it can't infer closing speed from shrinking distances;
-    // positive means the gap is shrinking, whether I'm catching the car ahead or the car behind is catching me
-    const closing = other => {
-      if (!other) return 0;
-      const dx = other.x - this.x, dy = other.y - this.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
-      return clamp(((this.vx - other.vx) * dx + (this.vy - other.vy) * dy) / d / 3, -1, 1);
-    };
-    inputs[IN.closing] = closing(ahead);
-    inputs[IN.rearClosing] = closing(behind);
+    inputs[IN.closing] = closingSpeed(this, ahead);
+    inputs[IN.rearClosing] = closingSpeed(this, behind);
     // which side the attack is coming from: makes "move over to cover it" a one-weight behaviour
-    inputs[IN.attacker] = behind ? clamp(behindSide / HALF_WIDTH, -1, 1) : 0;
+    inputs[IN.attacker] = behind ? clamp(behindSide / track.halfWidth, -1, 1) : 0;
 
-    // what the driver feels in the seat
-    inputs[IN.speed] = (this.vx * c + this.vy * s) / MAX_SPEED;
-    inputs[IN.slide] = clamp((-this.vx * s + this.vy * c) / 3, -1, 1);
-    inputs[IN.yaw] = clamp(this.spin / 0.08, -1, 1);
+    // what the driver feels in the seat, scaled to this car (a stock car's slides and rotation are gentler)
+    inputs[IN.speed] = (this.vx * c + this.vy * s) / P.speedNorm;
+    inputs[IN.slide] = clamp((-this.vx * s + this.vy * c) / P.slideNorm, -1, 1);
+    inputs[IN.yaw] = clamp(this.spin / P.yawNorm, -1, 1);
     inputs[IN.contact] = this.touchingWall ? 1 : 0;
 
     // where it sits on the track, measured across the track rather than along the car's body
     const n = track.points.length, i = Math.floor(this.lastArc / track.length * n) % n;
-    const [px, py] = track.points[i], h = track.heading[i], rel = this.angle - h;
-    inputs[IN.trackPos] = ((this.x - px) * -Math.sin(h) + (this.y - py) * Math.cos(h)) / HALF_WIDTH;
+    const px = track.points[i][0], py = track.points[i][1], h = track.heading[i], rel = this.angle - h;
+    inputs[IN.trackPos] = ((this.x - px) * -Math.sin(h) + (this.y - py) * Math.cos(h)) / track.halfWidth;
     inputs[IN.heading] = Math.sin(rel);
     inputs[IN.facing] = Math.cos(rel);
 
     // the road ahead: bearing to centreline points further down the track, in the car's frame
     for (let k = 0; k < LOOKAHEAD.length; k++) {
-      const [ax, ay] = track.points[(i + Math.round(LOOKAHEAD[k] / track.spacing)) % n];
-      const dx = ax - this.x, dy = ay - this.y;
+      const point = track.points[(i + Math.round(LOOKAHEAD[k] * P.lookScale / track.spacing)) % n];
+      const dx = point[0] - this.x, dy = point[1] - this.y;
       inputs[IN.ahead + k] = clamp(Math.atan2(-dx * s + dy * c, dx * c + dy * s) / (Math.PI / 2), -1, 1);
     }
     inputs[IN.draft] = this.draft;
     inputs[IN.prevSteer] = this.steer;
     inputs[IN.prevThrottle] = this.throttle;
     inputs[IN.position] = this.position;
-    const { front, rear } = this.condition;
-    inputs[IN.aero] = front;
-    inputs[IN.aero + 1] = rear;
+    // share of front and rear downforce lost, as in `condition`
+    inputs[IN.aero] = 1 - 1 / (1 + AERO_LOSS * this.damage.front);
+    inputs[IN.aero + 1] = 1 - 1 / (1 + AERO_LOSS * this.damage.rear);
   }
 
   // The brain also judges a left/right-mirrored copy of the world and the two opinions are
@@ -281,17 +361,39 @@ class Car {
   decide() {
     const { brain, inputs, mirrored } = this;
     for (let i = 0; i < INPUT_COUNT; i++) mirrored[i] = MIRROR_SIGN[i] * inputs[MIRROR_FROM[i]];
-    const flipped = brain.think(mirrored), mirrorSteer = flipped[0], mirrorThrottle = flipped[1];
-    const out = brain.think(inputs);
-    this.action[0] = (out[0] - mirrorSteer) / 2;
-    this.action[1] = (out[1] + mirrorThrottle) / 2;
+    const pair = brain.thinkPair(mirrored, inputs);
+    this.action[0] = (pair[2] - pair[0]) / 2;
+    this.action[1] = (pair[3] + pair[1]) / 2;
   }
 
   drive(steer, throttle) {
-    steer = clamp(steer, this.steer - STEER_RATE, this.steer + STEER_RATE);
+    const P = this.spec, track = this.track;
+    // the wheels turn at the same rate whatever the lock, so a smaller reach at speed lets the hands move further
+    const ca = Math.cos(this.angle), sa = Math.sin(this.angle);
+    const rate = P.steerSpeed ? P.steerRate * P.maxSteer / steerLock(P, this.vx * ca + this.vy * sa, this.vy * ca - this.vx * sa) : P.steerRate;
+    steer = clamp(steer, this.steer - rate, this.steer + rate);
     this.steer = steer;
     this.throttle = throttle;
     steer = clamp(steer + this.pull, -1, 1);
+
+    // On an oval the road itself acts on the car. A banked turn pushes it up and in: the sim works in the
+    // flat top-down plane, so the bank shows up as an inward push (gravity down the slope plus the tilt of the
+    // road's support) and as extra tyre load when cornering hard toward the infield (ac). A stopped car on
+    // 33 degrees just about holds; a fast one gets the banked-turn grip that makes Talladega flat out.
+    let loadGrip = 1, surfaceGrip = 1;
+    if (track.nascar) {
+      const lateral = track.lateralAt(this.x, this.y), bank = track.bankAt(this.lastArc, lateral);
+      this.surface = track.surfaceAt(this.x, this.y);
+      if (bank) {
+        const h = track.headingAt(this.lastArc), sb = Math.sin(bank), cb = Math.cos(bank);
+        const speedNow = Math.sqrt(this.vx * this.vx + this.vy * this.vy), ac = Math.max(-G, -this.spin * speedNow);
+        const inward = (G * cb + ac * sb) * sb;
+        this.vx += inward * Math.sin(h);
+        this.vy -= inward * Math.cos(h);
+        loadGrip = Math.max(0.3, cb * (cb + ac / G * sb)) ** P.loadSens;
+      }
+      surfaceGrip = SURFACE_GRIP[this.surface] * track.grip;
+    }
     const c = Math.cos(this.angle), s = Math.sin(this.angle);
     let forward = this.vx * c + this.vy * s, side = -this.vx * s + this.vy * c;
     const rolling = forward;
@@ -300,17 +402,21 @@ class Car {
     // suspension costs it) plus downforce, which grows with speed; turbulent air from a car ahead
     // steals some, and so does crash damage: a smashed nose loses front downforce, a smashed tail rear.
     const { front, side: sideDamage, rear, bent } = this.damage;
-    const mechanical = GRIP / (1 + BENT_GRIP * bent), downforce = DOWNFORCE * forward * forward * (1 - DIRTY_AIR * this.draft);
+    let mechanical = P.grip / (1 + BENT_GRIP * bent), downforce = P.downforce * forward * forward * (1 - P.dirtyAir * this.draft);
+    if (track.nascar) {
+      mechanical *= loadGrip * surfaceGrip;
+      downforce *= surfaceGrip;
+    }
     const frontGrip = mechanical + downforce / (1 + AERO_LOSS * front);
     const hold = mechanical + downforce / (1 + AERO_LOSS * rear);
     let push;
-    if (throttle >= 0) push = throttle * Math.min(TRACTION, POWER / (1 + OVERHEAT * front) / Math.max(forward, 1));
-    else if (forward > 0.3) push = throttle * BRAKE;
-    else push = forward > -REVERSE_MAX ? throttle * REVERSE : 0;
+    if (throttle >= 0) push = throttle * Math.min(P.traction, P.power / (1 + OVERHEAT * front) / Math.max(forward, 1));
+    else if (forward > 0.3) push = throttle * P.brake;
+    else push = forward > -P.reverseMax ? throttle * P.reverse : 0;
 
     // weight moves forward under braking and back under power; each axle's grip follows its load, and a
     // tyre that's already sliding grips less than one that isn't, so slides and spins carry on
-    const toFront = clamp(0.5 - LOAD_TRANSFER * push, 0.3, 0.7);
+    const toFront = clamp(0.5 - P.loadTransfer * push, 0.3, 0.7);
     const capFront = frontGrip * toFront * (this.frontLoose ? SLIDE_GRIP : 1);
     const capRear = hold * (1 - toFront) * (this.rearLoose ? SLIDE_GRIP : 1);
     // drive goes through the rear only; brakes are biased to the front so a hard stop pushes wide, not round
@@ -325,7 +431,8 @@ class Car {
     // Each axle's grip is one budget shared between driving/braking along the wheel and stopping its own
     // sideways slide; asking for more scales both back (wheelspin, lock-up). The front works along the
     // steered wheel. Solved as impulses, a few passes so the two axles settle together.
-    const delta = steer * MAX_STEER, sd = Math.sin(delta), cd = Math.cos(delta);
+    const AXLE = P.axle, INERTIA = P.inertia;
+    const delta = steer * steerLock(P, forward, side), sd = Math.sin(delta), cd = Math.cos(delta);
     const massFront = 1 / (1 + (AXLE * cd) ** 2 / INERTIA), massRear = 1 / (1 + AXLE * AXLE / INERTIA);
     let r = this.spin, alongF = 0, acrossF = 0, alongR = 0, acrossR = 0, overF = false, overR = false, slideRear = 0;
     for (let pass = 0; pass < 3; pass++) {
@@ -363,7 +470,7 @@ class Car {
     this.rearLoose = overR;
     // stay on the power past the grip and the wheels spin up; lift and they catch again
     this.wheelspin = !braking && throttle > 0 && overR && !this.human ? Math.min(1, this.wheelspin + SPIN_UP * throttle) : this.wheelspin * 0.6;
-    this.slip = overR ? Math.min(1, Math.abs(slideRear) / 2) : 0;
+    this.slip = overR ? Math.min(1, Math.abs(slideRear) / P.slipNorm) : 0;
     this.spin = r;
     this.angle += this.spin;
 
@@ -371,10 +478,16 @@ class Car {
     this.vy = forward * s + side * c;
     const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
     const bodywork = 1 + NOSE_DRAG * front + TAIL_DRAG * rear + FLANK_DRAG * sideDamage;
-    const air = 1 - DRAFT_DRAG * this.draft - PUSH_DRAG * this.pushed + SIDE_DRAG * this.sideDrafted;
-    const drag = AERO * bodywork * air * speed + ROLL;
+    const air = 1 - P.draftDrag * this.draft - P.pushDrag * this.pushed + P.sideDrag * this.sideDrafted;
+    const drag = P.aero * bodywork * air * speed + P.roll;
     this.vx *= 1 - drag;
     this.vy *= 1 - drag;
+    // grass and sand bog the car down
+    if (track.nascar && SURFACE_DRAG[this.surface] && speed > 0) {
+      const keep = Math.max(0, 1 - SURFACE_DRAG[this.surface] / speed);
+      this.vx *= keep;
+      this.vy *= keep;
+    }
     this.x += this.vx;
     this.y += this.vy;
     if (throttle < -0.3 && forward > 4) this.braked = true;
@@ -385,10 +498,12 @@ class Car {
   hitWalls(track, events) {
     const c = this.c = Math.cos(this.angle), s = this.s = Math.sin(this.angle);
     let touching = false;
-    for (const ox of BODY_X) {
-      const px = this.x + c * ox, py = this.y + s * ox, d = track.distAt(px, py);
+    // real walls only: on an oval the grass and the apron are drivable
+    const BODY_R = this.spec.bodyR;
+    for (const ox of this.spec.bodyX) {
+      const px = this.x + c * ox, py = this.y + s * ox, d = track.wallAt(px, py);
       if (d >= BODY_R) continue;
-      let nx = track.distAt(px + 1, py) - track.distAt(px - 1, py), ny = track.distAt(px, py + 1) - track.distAt(px, py - 1);
+      let nx = track.wallAt(px + 1, py) - track.wallAt(px - 1, py), ny = track.wallAt(px, py + 1) - track.wallAt(px, py - 1);
       const len = Math.sqrt(nx * nx + ny * ny);
       if (!len) continue;
       nx /= len;
@@ -427,9 +542,16 @@ class Car {
     this.lastArc = arc;
 
     if (this.progress >= (this.laps.length + 1) * track.length) {
-      this.laps.push(this.steps - this.lapStart);
+      // a lap the field was reformed during (a compressed caution) isn't a real lap time
+      this.laps.push(this.lapVoid ? Infinity : this.steps - this.lapStart);
+      this.lapVoid = false;
       this.lapStart = this.steps;
-      if (this.laps.length >= this.raceLaps) {
+      if (this.underYellow) {
+        this.yellowLaps++;
+        // the green has waved: this crossing ends the caution, the next lap counts
+        if (this.greenAtLine) this.underYellow = this.greenAtLine = false;
+      }
+      if (this.laps.length + this.freeLaps - this.yellowLaps >= this.raceLaps) {
         this.finished = true;
         this.running = false;
         this.doneAt = step;
@@ -443,8 +565,8 @@ class Car {
       this.path[at + 2] = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
       this.pathLen = (step >> 1) + 1;
     }
-    if (this.human) return;
-    const stalled = this.steps % STALL_WINDOW === 0 && this.progress - this.checkpoint < STALL_MIN;
+    if (this.human || this.paced) return;
+    const stalled = this.steps % STALL_WINDOW === 0 && this.progress - this.checkpoint < this.spec.stallMin;
     if (this.steps % STALL_WINDOW === 0) this.checkpoint = this.progress;
     if (stalled || this.progress < -this.gridOffset - 150) {
       this.running = false;

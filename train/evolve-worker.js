@@ -17,5 +17,5 @@ parentPort.on('message', msg => {
     return parentPort.postMessage({ id: msg.id, out: scores });
   }
   // a full-field race between roster drivers: tournaments and the originals benchmark
-  parentPort.postMessage({ id: msg.id, out: run({ kind: 'field', drivers: job.entrants.map(i => roster[i]), trackSeed: job.trackSeed, laps: job.laps }) });
+  parentPort.postMessage({ id: msg.id, out: run({ ...job, kind: 'field', drivers: job.entrants.map(i => roster[i]) }) });
 });

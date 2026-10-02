@@ -3,14 +3,17 @@ const FOLLOW_SPAN = 560;
 const PALETTE = Array.from({ length: GRID_SLOTS }, (_, i) => `hsl(${(i * 137.5 + 190) % 360} 80% 62%)`);
 const particles = [];
 
-const fullZoom = () => Math.min(view.w / WORLD_W, view.h / WORLD_H) * 0.97;
+// the world is the current track's: generated tracks share one size, each real oval has its own
+const worldW = () => track?.worldW ?? WORLD_W, worldH = () => track?.worldH ?? WORLD_H;
+const fullZoom = () => Math.min(view.w / worldW(), view.h / worldH()) * 0.97;
 const toWorld = (sx, sy) => [(sx - view.w / 2) / view.zoom + view.x, (sy - view.h / 2) / view.zoom + view.y];
 
 function moveCamera(target, snap) {
-  const follow = view.mode === 'follow' && target;
-  const zoom = follow ? Math.min(view.w, view.h) / FOLLOW_SPAN : fullZoom();
-  const x = follow ? target.x + target.vx * 14 : WORLD_W / 2, y = follow ? target.y + target.vy * 14 : WORLD_H / 2;
-  const far = Math.hypot(x - view.x, y - view.y) > FOLLOW_SPAN;
+  // closer in on the ovals: real-size stock cars are smaller than the arcade cars' world
+  const follow = view.mode === 'follow' && target, span = track?.nascar ? 320 : FOLLOW_SPAN;
+  const zoom = follow ? Math.min(view.w, view.h) / span : fullZoom();
+  const x = follow ? target.x + target.vx * 14 : worldW() / 2, y = follow ? target.y + target.vy * 14 : worldH() / 2;
+  const far = Math.hypot(x - view.x, y - view.y) > span;
   const k = snap || far ? 1 : 0.12;
   view.x += (x - view.x) * k;
   view.y += (y - view.y) * k;
@@ -35,8 +38,9 @@ function drawGround(ctx) {
   ctx.strokeStyle = 'rgba(120, 255, 190, 0.035)';
   ctx.lineWidth = 1 / view.zoom;
   ctx.beginPath();
-  for (let x = Math.max(0, Math.ceil(x0 / 80) * 80); x <= Math.min(WORLD_W, x1); x += 80) ctx.moveTo(x, Math.max(0, y0)), ctx.lineTo(x, Math.min(WORLD_H, y1));
-  for (let y = Math.max(0, Math.ceil(y0 / 80) * 80); y <= Math.min(WORLD_H, y1); y += 80) ctx.moveTo(Math.max(0, x0), y), ctx.lineTo(Math.min(WORLD_W, x1), y);
+  if (track?.nascar) return;
+  for (let x = Math.max(0, Math.ceil(x0 / 80) * 80); x <= Math.min(worldW(), x1); x += 80) ctx.moveTo(x, Math.max(0, y0)), ctx.lineTo(x, Math.min(worldH(), y1));
+  for (let y = Math.max(0, Math.ceil(y0 / 80) * 80); y <= Math.min(worldH(), y1); y += 80) ctx.moveTo(Math.max(0, x0), y), ctx.lineTo(Math.min(worldW(), x1), y);
   ctx.stroke();
 }
 
@@ -48,6 +52,7 @@ function outline(points) {
 }
 
 function drawTrack(ctx, track) {
+  if (track.nascar) return drawOval(ctx, track);
   const path = track.outline ??= outline(track.points);
   ctx.lineJoin = ctx.lineCap = 'round';
   const stroke = (style, width, dash = []) => {
@@ -113,24 +118,26 @@ function drawRacingLine(ctx, line) {
 
 function drawWake(ctx, car) {
   if (car.tow < 0.04) return;
-  const len = DRAFT_LEN * 0.85, spread = CAR_WID * 0.8 + len * 0.07;
+  const tail = car.spec.len / 2, half = car.spec.wid / 2, len = car.spec.draftLen * 0.85, spread = car.spec.wid * 0.8 + len * 0.07;
   ctx.save();
   ctx.translate(car.x, car.y);
   ctx.rotate(car.angle);
-  const fade = ctx.createLinearGradient(-10, 0, -10 - len, 0);
+  const fade = ctx.createLinearGradient(-tail, 0, -tail - len, 0);
   fade.addColorStop(0, `rgba(56, 225, 255, ${0.32 * car.tow})`);
   fade.addColorStop(1, 'rgba(56, 225, 255, 0)');
   ctx.fillStyle = fade;
   ctx.beginPath();
-  ctx.moveTo(-10, -5);
-  ctx.lineTo(-10 - len, -spread);
-  ctx.lineTo(-10 - len, spread);
-  ctx.lineTo(-10, 5);
+  ctx.moveTo(-tail, -half);
+  ctx.lineTo(-tail - len, -spread);
+  ctx.lineTo(-tail - len, spread);
+  ctx.lineTo(-tail, half);
   ctx.fill();
   ctx.restore();
 }
 
-function drawCar(ctx, car, color, { glow = false, alpha = 1 } = {}) {
+function drawCar(ctx, car, color, opts = {}) {
+  if (car.spec.stock) return drawStockCar(ctx, car, car.livery ?? { primary: color, secondary: '#fff', accent: '#111', pattern: 'stripes', sponsor: '' }, opts);
+  const { glow = false, alpha = 1 } = opts;
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.translate(car.x, car.y);
@@ -204,13 +211,13 @@ function drawRays(ctx, car, track) {
   ctx.setLineDash([4 / view.zoom, 5 / view.zoom]);
   ctx.beginPath();
   ctx.moveTo(car.x, car.y);
-  for (const d of LOOKAHEAD) ctx.lineTo(...track.points[(i + Math.round(d / track.spacing)) % n]);
+  for (const d of LOOKAHEAD) ctx.lineTo(...track.points[(i + Math.round(d * car.spec.lookScale / track.spacing)) % n]);
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.strokeStyle = '#ffb36b';
   ctx.lineWidth = 2 / view.zoom;
   for (const d of LOOKAHEAD) {
-    const [x, y] = track.points[(i + Math.round(d / track.spacing)) % n];
+    const [x, y] = track.points[(i + Math.round(d * car.spec.lookScale / track.spacing)) % n];
     ctx.beginPath();
     ctx.arc(x, y, 5 / view.zoom, 0, Math.PI * 2);
     ctx.stroke();
@@ -251,7 +258,7 @@ function drawLabel(ctx, car, text, color) {
   ctx.font = `700 ${11 / view.zoom}px ui-sans-serif, system-ui`;
   ctx.textAlign = 'center';
   ctx.fillStyle = color;
-  ctx.fillText(text, car.x, car.y - 16);
+  ctx.fillText(text, car.x, car.y - car.spec.len * 0.55 - 6 / view.zoom);
 }
 
 // ---------- sparks & smoke ----------
@@ -312,7 +319,7 @@ function drawParticles(ctx) {
 // ---------- minimap ----------
 
 function drawMinimap(ctx, track, cars, focus, colorOf) {
-  const w = Math.min(240, view.w * 0.22), h = w * WORLD_H / WORLD_W, x = view.w - w - 12, y = 12, k = w / WORLD_W;
+  const W = track.worldW, H = track.worldH, w = Math.min(240, view.w * 0.22, 240 * W / H), h = w * H / W, x = view.w - w - 12, y = 12, k = w / W;
   if (!track.minimap || track.minimap.width !== Math.round(w * view.dpr)) {
     const map = track.minimap = document.createElement('canvas');
     map.width = Math.round(w * view.dpr);
@@ -321,7 +328,7 @@ function drawMinimap(ctx, track, cars, focus, colorOf) {
     m.scale(k * view.dpr, k * view.dpr);
     m.lineJoin = 'round';
     m.strokeStyle = 'rgba(220, 230, 245, 0.55)';
-    m.lineWidth = HALF_WIDTH * 1.2;
+    m.lineWidth = track.halfWidth * (track.nascar ? 4 : 1.2);
     m.stroke(track.outline ??= outline(track.points));
   }
   screenTransform(ctx);

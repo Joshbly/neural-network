@@ -21,9 +21,8 @@ function activationColor(v) {
 const xrayInputs = new Float32Array(INPUT_COUNT), xrayMirror = new Float32Array(INPUT_COUNT);
 function decideFrom(brain, x) {
   for (let i = 0; i < INPUT_COUNT; i++) xrayMirror[i] = MIRROR_SIGN[i] * x[MIRROR_FROM[i]];
-  const flipped = brain.think(xrayMirror), mirrorSteer = flipped[0], mirrorGas = flipped[1];
-  const out = brain.think(x);
-  return [(out[0] - mirrorSteer) / 2, (out[1] + mirrorGas) / 2];
+  const pair = brain.thinkPair(xrayMirror, x);
+  return [(pair[2] - pair[0]) / 2, (pair[3] + pair[1]) / 2];
 }
 
 function xray(car) {

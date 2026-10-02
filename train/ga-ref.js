@@ -6,7 +6,7 @@ const path = require('path');
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc, []));
 const gens = +(args.gens || 100), laps = +(args.laps || 2), seed = +(args.track || 2);
-const files = ['nn.js', 'track.js', 'car.js', 'heat.js', 'sim.js'];
+const files = ['nn-wasm.js', 'nn.js', 'track.js', 'car.js', 'heat.js', 'sim.js'];
 const source = files.map(f => fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8')).join('\n');
 const { Sim, Track, mulberry32 } = new Function(`${source}\nreturn { Sim, Track, mulberry32 };`)();
 

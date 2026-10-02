@@ -2,10 +2,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const files = ['nn.js', 'track.js', 'car.js', 'heat.js'];
+const files = ['nn-wasm.js', 'nn.js', 'nascar-tracks.js', 'track.js', 'car.js', 'heat.js', 'racecontrol.js', 'nascar.js'];
 const source = files.map(f => fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8')).join('\n');
 const E = new Function(`${source}
-return { Brain, Track, Heat, Car, IN, mulberry32, geneCount, INPUT_COUNT, HALF_WIDTH, REAR_CAR_RAYS, clamp };`)();
+return { Brain, Track, OvalTrack, NASCAR_TRACKS, SURFACE, MPH_PER_SPEED, Heat, Car, RaceControl, IN, mulberry32, geneCount, INPUT_COUNT,
+  HALF_WIDTH, REAR_CAR_RAYS, clamp, G, NORMAL, NASCAR_670, NASCAR_PLATE, specFor, stockSpec, steerLock,
+  SUPERSPEEDWAYS, YARDSTICK_OVALS, practiceOvals, seasonOvals, lapsFor, pickFrom, OTHER_OVALS };`)();
 
 // deterministic Gaussian noise from a seed, so perturbations never need to be shipped between threads
 function noise(seed, n) {
@@ -62,6 +64,21 @@ function track(seed) {
   if (tracks.size > TRACK_CACHE) tracks.delete(tracks.keys().next().value);
   return t;
 }
+// the real ovals are bigger (about 4 MB each, all 32 would be 116 MB a thread) and a generation only visits a
+// dozen, so the 8 most recent stay built
+const ovals = new Map(), OVAL_CACHE = 8;
+function oval(id) {
+  const t = ovals.get(id) ?? new E.OvalTrack(E.NASCAR_TRACKS.find(d => d.id === id));
+  ovals.delete(id);
+  ovals.set(id, t);
+  if (ovals.size > OVAL_CACHE) ovals.delete(ovals.keys().next().value);
+  return t;
+}
+// a scenario names a generated track by seed or a real oval by id, and which cars race: normal saves leave
+// both out, so their races are exactly what they always were
+const trackOf = sc => sc.trackId ? oval(sc.trackId) : track(sc.trackSeed);
+const heatOf = (sc, t, brains) => new E.Heat(t, brains, sc.laps, sc.cars || sc.trackId
+  ? { cars: sc.cars, stages: sc.stages, practice: !sc.stages, fastCaution: true } : {});
 
 // Share of downforce lost by the flag. Training races are a few laps but the real ones run ten, so the
 // car you bring home is scored as if you still had to race it.
@@ -79,26 +96,34 @@ const WALL_PENALTY = { race: 0.12, solo: 0.04 };
 const racePoints = (place, n) => place === 0 ? 1 : 0.45 * (n - 1 - place) / Math.max(1, n - 2);
 // Leading is rewarded for as long as you hold it: take the lead and keep everyone else from winning.
 const led = car => car.ledSteps / Math.max(1, car.steps), LEAD_BONUS = 0.3;
+// On the ovals, breaking the rules costs reward on top of what it costs on track: a black flag (passing below
+// the yellow line, jumping a restart) about a place and a half, bringing out a caution about one, and every
+// moment spent below the line at the plate tracks a little, so the bottom of the track stays a no-go zone.
+// Zero in normal races, where race control doesn't exist.
+const YELLOW_LINE = 1;
+const ruleCost = car => car.penalties === undefined ? 0 : 0.15 * car.penalties + 0.1 * car.cautionsCaused + YELLOW_LINE * car.belowLine / Math.max(1, car.steps);
+// distance covered, counting a lap given back by the lucky dog
+const covered = car => car.progress + car.bonus + car.gridOffset;
 
 // Solo laps against the clock: pace and clean driving, no traffic noise.
-function timeTrial({ layers, genes, trackSeed, laps }) {
-  const t = track(trackSeed), heat = new E.Heat(t, [new E.Brain(layers, genes)], laps);
+function timeTrial(sc) {
+  const { layers, genes, laps } = sc, t = trackOf(sc), heat = heatOf(sc, t, [new E.Brain(layers, genes)]);
   while (!heat.over) heat.tick();
-  const car = heat.cars[0], share = E.clamp((car.progress + car.gridOffset) / (laps * t.length), 0, 1);
+  const car = heat.cars[0], share = E.clamp(covered(car) / (laps * t.length), 0, 1);
   // a DNF (stalled or wrong way) must always score below crashing forward, or "never move" becomes
   // a local optimum that wall penalties alone would make attractive
   return {
-    score: (car.finished ? 1 + (1 - car.steps / heat.maxSteps) : share) - WALL_PENALTY.solo * car.wallHits - 0.001 * car.impact - 0.5 * worn(car) - (car.retired ? 0.5 : 0),
+    score: (car.finished ? 1 + (1 - car.steps / heat.maxSteps) : share) - WALL_PENALTY.solo * car.wallHits - 0.001 * car.impact - 0.5 * worn(car) - (car.retired ? 0.5 : 0) - ruleCost(car),
     finished: car.finished, lap: car.laps.length ? Math.min(...car.laps) / 60 : null, walls: car.wallHits, aero: worn(car),
   };
 }
 
 // A race: the candidate starts from `slot` among opponents. Winning and leading are what count; distance
 // and finishing time only break ties; walls, ramming, damage and riding bumpers cost you.
-function race({ layers, genes, opponents, trackSeed, slot, laps, blind }) {
-  const t = track(trackSeed), brains = opponents.map(o => new E.Brain(o.layers, o.genes));
+function race(sc) {
+  const { layers, genes, opponents, slot, laps, blind } = sc, t = trackOf(sc), brains = opponents.map(o => new E.Brain(o.layers, o.genes));
   brains.splice(slot, 0, new E.Brain(layers, genes));
-  const heat = new E.Heat(t, brains, laps), me = heat.cars[slot];
+  const heat = heatOf(sc, t, brains), me = heat.cars[slot];
   if (blind) {
     // the "mirrors blacked out" control for checking whether a driver actually uses rear awareness
     const sense = me.sense.bind(me);
@@ -110,28 +135,29 @@ function race({ layers, genes, opponents, trackSeed, slot, laps, blind }) {
   }
   while (!heat.over) heat.tick();
   const n = heat.cars.length, place = heat.standings().indexOf(me);
-  const share = E.clamp((me.progress + me.gridOffset) / (laps * t.length), 0, 1);
+  const share = E.clamp(covered(me) / (laps * t.length), 0, 1);
   return {
     score: racePoints(place, n) + LEAD_BONUS * led(me) + 0.15 * share + (me.finished ? 0.05 * (1 - me.steps / heat.maxSteps) : 0)
-      - WALL_PENALTY.race * me.wallHits - 0.1 * me.rammed - worn(me) - TAIL_PENALTY * tail(me) - (me.retired ? 0.5 : 0),
+      - WALL_PENALTY.race * me.wallHits - 0.1 * me.rammed - worn(me) - TAIL_PENALTY * tail(me) - (me.retired ? 0.5 : 0) - ruleCost(me),
     place, won: place === 0, finished: me.finished, walls: me.wallHits, passes: me.overtakes, passedBy: me.passedBy,
     rammed: me.rammed, aero: worn(me), tail: tail(me), led: led(me), lap: me.laps.length ? Math.min(...me.laps) / 60 : null,
   };
 }
 
 // A full field of independent drivers; returns every car's result in grid order.
-function fieldRace({ drivers, trackSeed, laps }) {
-  const t = track(trackSeed), heat = new E.Heat(t, drivers.map(d => new E.Brain(d.layers, Float32Array.from(d.genes))), laps);
+function fieldRace(sc) {
+  const t = trackOf(sc), heat = heatOf(sc, t, sc.drivers.map(d => new E.Brain(d.layers, Float32Array.from(d.genes))));
   while (!heat.over) heat.tick();
   const standings = heat.standings();
   return heat.cars.map(car => ({
     place: standings.indexOf(car), finished: car.finished, retired: car.retired, walls: car.wallHits,
     passes: car.overtakes, passedBy: car.passedBy, rammed: car.rammed, aero: worn(car), tail: tail(car), led: led(car), draft: car.draftSteps / Math.max(1, car.steps),
     lap: car.laps.length ? Math.min(...car.laps) / 60 : null,
+    ...heat.control && { stagePoints: car.stagePoints, cautionsCaused: car.cautionsCaused, penalties: car.penalties, belowLine: car.belowLine / Math.max(1, car.steps), parked: car.parked },
   }));
 }
 
 const RUNNERS = { tt: timeTrial, race, field: fieldRace };
 const run = scenario => RUNNERS[scenario.kind](scenario);
 
-module.exports = { E, noise, perturb, initParams, widen, run, track, racePoints };
+module.exports = { E, noise, perturb, initParams, widen, run, track, oval, racePoints };

@@ -281,7 +281,23 @@ button.small { padding: 3px 9px; font-size: 11.5px; }
 .slots { background: #0f1522; border-radius: 9px; padding: 6px 8px; margin-bottom: 6px; }
 .slots-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .slots-head label { flex: 1; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
-.slot { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 6px; padding: 4px 2px; border-top: 1px solid rgba(255, 255, 255, 0.04); }
+.slot { display: grid; grid-template-columns: 8px 1fr auto auto; align-items: center; gap: 6px; padding: 4px 2px; border-top: 1px solid rgba(255, 255, 255, 0.04); }
+.mode { display: inline-block; font: 800 9px ui-sans-serif, system-ui; letter-spacing: 0.08em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: 1px;
+  background: #1d2a44; color: var(--cyan); }
+.mode.nascar { background: linear-gradient(90deg, #ffcc00, #ff6b00); color: #141414; }
+.mode.mixed { background: #3a2a52; color: #d7b8ff; }
+button.nascar { border-color: rgba(255, 180, 0, 0.5); color: #ffcc66; }
+.convert { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; padding: 8px 10px; border-radius: 9px; background: rgba(255, 180, 0, 0.07); border: 1px solid rgba(255, 180, 0, 0.3); font-size: 12px; }
+.convert > span { flex-basis: 100%; color: #d9c79a; }
+#flagstand { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 8px;
+  background: rgba(6, 10, 16, 0.82); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 11px; pointer-events: none; max-width: min(520px, 60%); }
+#stage.racing #flagstand { top: 66px; }
+#flagstand > i { width: 34px; height: 22px; border-radius: 3px; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15); }
+#flagstand > i.checkered { background: repeating-conic-gradient(#111 0 25%, #f5f5f5 0 50%) 0 0 / 11px 11px; }
+#flagstand > i.redblack { background: linear-gradient(135deg, #111 50%, #e74c3c 50%); }
+#flagstand > i.blue { background: linear-gradient(180deg, #1f6feb 33%, #f1c40f 33% 66%, #1f6feb 66%); }
+#flagstand b { display: block; font: 800 13px ui-sans-serif, system-ui; letter-spacing: 0.1em; }
+#flagstand small { display: block; font-size: 11px; color: #b7c2d4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .slot { cursor: pointer; border-radius: 6px; }
 .slot:hover { background: rgba(255, 255, 255, 0.04); }
 .slot.loaded { background: rgba(56, 225, 255, 0.08); cursor: default; }

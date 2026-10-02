@@ -8,13 +8,45 @@ function gaussian() {
   return Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
 }
 
+// The WebAssembly SIMD kernel (train/nn.wat, inlined as js/nn-wasm.js) does thinkJS's arithmetic in the
+// same order and precision, so its results are bit-identical; it just runs 8 neurons side by side. Brains
+// keep their weights and activations in its memory, handed out by a bump allocator that starts over when
+// full (first giving every brain still in there its activations back as plain arrays). Without SIMD, or
+// without nn-wasm.js, everything runs on thinkJS.
+const NN = (() => {
+  try {
+    const bytes = Uint8Array.from(atob(NN_WASM), c => c.charCodeAt(0));
+    const { memory, forward, forward2 } = new WebAssembly.Instance(new WebAssembly.Module(bytes)).exports;
+    const { buffer } = memory, start = 33792;  // below: the kernel's scratch for one layer's inputs
+    return { forward, forward2, f32: new Float32Array(buffer), f64: new Float64Array(buffer), i32: new Int32Array(buffer), start, next: start, end: buffer.byteLength, epoch: 0, resident: [] };
+  } catch {
+    return null;
+  }
+})();
+
+function claim(bytes) {
+  if (NN.next + bytes > NN.end) {
+    for (const brain of NN.resident) brain.evict();
+    NN.resident.length = 0;
+    NN.epoch++;
+    NN.next = NN.start;
+  }
+  const at = NN.next;
+  NN.next += bytes;
+  return at;
+}
+
 class Brain {
+  static simd = !!NN;
+
   constructor(layers, genes = Brain.random(layers)) {
     this.layers = layers;
     this.genes = genes;
     this.acts = layers.map(n => new Float32Array(n));
     this.offsets = [0, 0];
     for (let l = 2; l < layers.length; l++) this.offsets[l] = this.offsets[l - 1] + layers[l - 1] * (layers[l - 2] + 1);
+    this.pair = new Float32Array(4);
+    this.epoch = -1;
   }
 
   static random(layers) {
@@ -22,6 +54,88 @@ class Brain {
   }
 
   think(inputs) {
+    if (!Brain.simd) return this.thinkJS(inputs);
+    if (this.epoch !== NN.epoch) this.upload();
+    const n = this.layers[0];
+    this.acts[0].set(inputs.length > n ? inputs.subarray(0, n) : inputs);
+    NN.forward(this.desc);
+    return this.acts[this.acts.length - 1];
+  }
+
+  // a decision's two passes in one: [mirrorSteer, mirrorThrottle, steer, throttle], leaving acts exactly as
+  // think(mirrored) followed by think(inputs) would
+  thinkPair(mirrored, inputs) {
+    const pair = this.pair;
+    if (!Brain.simd) {
+      const flipped = this.thinkJS(mirrored);
+      pair[0] = flipped[0];
+      pair[1] = flipped[1];
+      const out = this.thinkJS(inputs);
+      pair[2] = out[0];
+      pair[3] = out[1];
+      return pair;
+    }
+    if (this.epoch !== NN.epoch) this.upload();
+    const n = this.layers[0];
+    this.acts[0].set(inputs.length > n ? inputs.subarray(0, n) : inputs);
+    this.mirror[0].set(mirrored.length > n ? mirrored.subarray(0, n) : mirrored);
+    NN.forward2(this.desc);
+    const flipped = this.mirror[this.mirror.length - 1], out = this.acts[this.acts.length - 1];
+    pair[0] = flipped[0];
+    pair[1] = flipped[1];
+    pair[2] = out[0];
+    pair[3] = out[1];
+    return pair;
+  }
+
+  // weights into the kernel's memory as float64, in blocks of 8 neurons (biases, then the 8 weights from
+  // each input, zero neurons padding the last block), with room for both passes' activations
+  upload() {
+    const { layers, genes, offsets } = this, L = layers.length - 1;
+    if (Math.max(...layers) > 1024) throw new Error('layers wider than 1024 neurons overflow the kernel scratch');
+    const blocks = layers.map(n => Math.ceil(n / 8));
+    const width = layers.map((n, l) => l ? blocks[l] * 8 : Math.ceil(n / 4) * 4);
+    let weights = 0;
+    for (let l = 1; l <= L; l++) weights += blocks[l] * 8 * (layers[l - 1] + 1);
+    const actFloats = width.reduce((a, b) => a + b, 0), descBytes = 16 * Math.ceil((1 + 7 * L) / 4);
+    const { f32, f64, i32 } = NN, base = claim(descBytes + 8 * weights + 8 * actFloats);
+    const desc = base / 4, actsAt = [], mirrorAt = [];
+    let w = (base + descBytes) / 8, p = (base + descBytes) / 4 + 2 * weights;
+    for (let l = 0; l <= L; l++) actsAt[l] = (p += l ? width[l - 1] : 0);
+    p += width[L];
+    for (let l = 0; l <= L; l++) mirrorAt[l] = (p += l ? width[l - 1] : 0);
+
+    i32[desc] = L;
+    for (let l = 1; l <= L; l++) {
+      const nIn = layers[l - 1], nOut = layers[l], span = nIn + 1, d = desc + 1 + 7 * (l - 1);
+      i32[d] = 8 * w;
+      i32[d + 1] = nIn;
+      i32[d + 2] = blocks[l];
+      i32[d + 3] = 4 * actsAt[l - 1];
+      i32[d + 4] = 4 * actsAt[l];
+      i32[d + 5] = 4 * mirrorAt[l - 1];
+      i32[d + 6] = 4 * mirrorAt[l];
+      for (let b = 0; b < blocks[l]; b++)
+        for (let r = 0; r < span; r++)
+          for (let j = b * 8; j < b * 8 + 8; j++) f64[w++] = j < nOut ? genes[offsets[l] + j * span + r] : 0;
+    }
+    const shown = this.acts;
+    this.acts = layers.map((n, l) => f32.subarray(actsAt[l], actsAt[l] + n));
+    this.mirror = layers.map((n, l) => f32.subarray(mirrorAt[l], mirrorAt[l] + n));
+    shown.forEach((a, l) => this.acts[l].set(a));
+    this.desc = 4 * desc;
+    this.epoch = NN.epoch;
+    NN.resident.push(this);
+  }
+
+  // the kernel's memory is being reused: keep the latest activations (the brain view draws them) as plain arrays
+  evict() {
+    this.acts = this.acts.map(a => a.slice());
+    this.mirror = null;
+    this.epoch = -1;
+  }
+
+  thinkJS(inputs) {
     const g = this.genes, acts = this.acts;
     // brains from before newer inputs were appended read just the inputs they know
     acts[0].set(inputs.length > acts[0].length ? inputs.subarray(0, acts[0].length) : inputs);

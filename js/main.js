@@ -10,8 +10,11 @@ let track = Track.random(mulberry32(seed));
 const sim = new Sim(track);
 
 // playing: your own track (new, drawn, or a race against them); otherwise evolving, on the training tracks
-// picked: the car you clicked, followed from race to race (in practice, the brain you want to watch learn)
-const state = { mode: 'train', speed: 3, paused: true, showRays: true, playing: false, focus: null, picked: null };
+// focus: the car you clicked this race (otherwise the camera follows the leader)
+// picked: the brain you last clicked, whose practice is shown next
+// away: watching the save's brains on the other kind of track ('nascar' or 'normal'), in their own cars
+// (awayCars 'own') or the cars that belong there ('host')
+const state = { mode: 'train', speed: 3, paused: true, showRays: true, playing: false, focus: null, picked: null, away: null, awayCars: 'own', oval: -1 };
 const keys = {};
 let panels, race = null, sketch = null, lastFocus = null, cameraBeforeSketch = 'follow';
 // The races you watch: a save's latest generation (models/slots/<id>/state.json, written by train/evolve.js).
@@ -32,6 +35,41 @@ const DESIGN_HUE = { A: 205, B: 268, C: 150, D: 30, E: 330 };
 const DESIGN_OF = { '16-10': 'A', '32-24-16': 'B', '64-64': 'C', '64-64-64': 'D', '128-128': 'E' };
 const designOf = layers => DESIGN_OF[layers.slice(1, -1).join('-')] || '?';
 const designColor = d => `hsl(${DESIGN_HUE[d] ?? 0} 85% 64%)`;
+
+// A save races generated tracks or the real NASCAR ovals, in normal cars or stock cars (any mix). Its brains
+// can be watched on the other kind of track too, in their own cars or the ones that race there.
+const homeCars = tracks => tracks === 'nascar' ? 'stock' : 'normal';
+const modeOf = id => {
+  const s = engine?.slots?.find(x => x.id === id), tracks = s?.tracks ?? 'normal';
+  return { tracks, cars: s?.cars ?? homeCars(tracks) };
+};
+const homeMode = () => modeOf(league?.slot ?? engine?.active);
+const watchedTracks = () => state.away ?? homeMode().tracks;
+const carsFor = t => {
+  const home = homeMode(), tracks = t.nascar ? 'nascar' : 'normal';
+  return tracks === home.tracks || state.awayCars === 'own' ? home.cars : homeCars(tracks);
+};
+// a race's track: a generated track's seed or a real oval's id, on whichever kind is being watched
+function trackFor(ref, tracks) {
+  if (tracks !== 'nascar') return Track.random(mulberry32(typeof ref === 'number' ? ref : nameHash(ref)));
+  // the browser keeps a few ovals built (a few MB each), not all 32
+  if (OvalTrack.byId.size > 6) OvalTrack.byId.delete(OvalTrack.byId.keys().next().value);
+  return OvalTrack.get(typeof ref === 'string' ? ref : NASCAR_TRACKS[ref % NASCAR_TRACKS.length].id);
+}
+// on an oval a race is a distance; on generated tracks a lap count
+const RACE_METRES = { practice: 5500, duel: 3000, tournament: 24000, saved: 24000, race: 8000 };
+const lapsOn = (t, kind, laps) => t.nascar ? lapsFor(t.key, RACE_METRES[kind]) : laps;
+// numbers from the brains' names (A2·73 runs #73), unique in the field and the same from race to race
+function dress(heat) {
+  if (!heat.cars.some(car => car.spec.stock)) return;
+  const names = [...new Set([...(league?.population.map(a => a.name) ?? []).sort(), ...heat.cars.map(car => car.human ? 'YOU' : car.species.name)])];
+  const numbers = assignNumbers(names);
+  for (const car of heat.cars) {
+    const name = car.human ? 'YOU' : car.species.name;
+    car.number = numbers.get(name);
+    car.livery = car.human ? { primary: YOU_COLOR, secondary: '#141414', accent: '#141414', pattern: 'checks', sponsor: 'Your Name Here', team: 'You' } : liveryFor(name, car.species.design);
+  }
+}
 // four shades per design so siblings are tellable apart
 const proStyle = (name, layers, k, extra = {}) => {
   const design = designOf(layers), hue = DESIGN_HUE[design] ?? 0;
@@ -64,7 +102,7 @@ function layout() {
 const activeHeat = () => race ? race.heat : pros ? pros.heat : sim.heats[sim.featured];
 // each species gets its own family of shades, so A and B are tellable apart at a glance
 const colorOf = car => car.human ? YOU_COLOR : car.pro ? car.species.color : `hsl(${car.species.hue + (car.slot % 4 - 1.5) * 9} 85% ${54 + (car.slot % 3) * 9}%)`;
-const nameOf = car => car.human ? 'YOU' : car.pro ? car.species.name : race ? `AI ${car.rank}·${car.species.name}` : `${car.species.name}${car.slot + 1}`;
+const nameOf = car => car.human ? 'YOU' : `${car.number != null ? `#${car.number} ` : ''}${car.pro ? car.species.name : race ? `AI ${car.rank}·${car.species.name}` : `${car.species.name}${car.slot + 1}`}`;
 const describe = sp => `${sp.design ? `design ${sp.design}, ` : ''}${sp.layers.length - 2} hidden layers (${sp.layers.slice(1, -1).join('-')})`;
 const damageText = car => {
   const { front, rear, drag } = car.condition, pct = v => Math.round(v * 100);
@@ -73,7 +111,7 @@ const damageText = car => {
 
 function leaderOf(heat) {
   let lead = null;
-  for (const car of heat.cars) if (car.running && (!lead || car.progress > lead.progress)) lead = car;
+  for (const car of heat.cars) if (car.running && (!lead || car.progress + car.bonus > lead.progress + lead.bonus)) lead = car;
   return lead;
 }
 
@@ -130,6 +168,7 @@ function render() {
       if (fade > 0) drawCar(ctx, car, colorOf(car), { alpha: fade * 0.7 });
     }
   }
+  if (heat.control?.paceCar) drawPaceCar(ctx, heat.control.paceCar);
   drawParticles(ctx);
   const thinker = race ? nearestRival(heat, race.you) : focus;
   if (thinker && state.showRays) drawRays(ctx, thinker, track);
@@ -273,17 +312,26 @@ function drawSlots() {
   $('#watch-name').textContent = active ? slotName(active) : '';
   if (armedDelete && Date.now() > armedDelete.until) armedDelete = null;
   const html = slots.map(s => {
-    const loaded = s.id === active, armed = armedDelete?.id === s.id;
+    const loaded = s.id === active, armed = armedDelete?.id === s.id, { tracks, cars } = modeOf(s.id), other = tracks === 'nascar' ? 'normal' : 'NASCAR';
     const gen = s.generation != null ? `generation ${s.generation} · champion ${esc(s.champion)}` : 'starting…';
     const status = !loaded ? `saved ${ago(s.updated)}` : cloud ? 'loaded · learning on Modal' : running ? 'loaded · learning' : 'loaded · paused';
+    const badge = cars === homeCars(tracks) ? `<span class="mode ${tracks === 'nascar' ? 'nascar' : ''}">${tracks === 'nascar' ? 'NASCAR' : 'normal'}</span>`
+      : `<span class="mode mixed">${tracks === 'nascar' ? 'NASCAR ovals · normal cars' : 'normal tracks · stock cars'}</span>`;
     return `<div class="slot ${loaded ? 'loaded' : ''}" data-id="${s.id}" title="${loaded ? 'This save is loaded' : 'Click to load this save'}">
       <i class="${loaded && running ? 'on' : ''}"></i>
-      <div><b>${esc(s.name)}</b><small>${gen} · ${status}</small></div>
+      <div><b>${esc(s.name)}${badge}</b><small>${gen} · ${status}</small></div>
+      <button class="small icon" data-act="convert" ${s.generation == null ? 'disabled title="Wait for its first generation"' : `title="Copy these brains into ${other} mode"`}>⇄</button>
       <button class="small icon ${armed ? 'armed' : ''}" data-act="delete" ${loaded ? 'disabled title="Load another save first"' : 'title="Delete this save"'}>${armed ? 'Delete?' : '✕'}</button>
     </div>`;
   }).join('');
   // only rebuild when something changed, so a click never lands on a row that's being replaced
   if (html !== slotsHtml) $('#slot-list').innerHTML = slotsHtml = html;
+  const home = homeMode(), otherTracks = home.tracks === 'nascar' ? 'normal' : 'nascar';
+  $('#watch-other').textContent = otherTracks === 'nascar' ? 'NASCAR ovals' : 'Normal tracks';
+  $('#watch-host').textContent = `Drive the ${homeCars(otherTracks) === 'stock' ? 'stock' : 'normal'} cars`;
+  $('#watch-cars').hidden = !state.away;
+  document.querySelectorAll('#watch-tracks button').forEach(b => b.classList.toggle('on', !!b.dataset.tracks === !!state.away));
+  document.querySelectorAll('#watch-cars button').forEach(b => b.classList.toggle('on', b.dataset.cars === state.awayCars));
 }
 
 function adoptLeague(data, slot) {
@@ -295,7 +343,9 @@ function adoptLeague(data, slot) {
   const before = league?.generation;
   league = Object.assign(data, { slot });
   drawLeague();
+  showMode();
   if (switched) {
+    state.away = null;
     toast(`Loaded <b>${esc(slotName(slot))}</b>, generation ${league.generation}.`);
     if (state.mode === 'pros' && !state.playing) startPros();
     return;
@@ -341,6 +391,15 @@ async function poll() {
   showEngine();
   drawBoard();
   drawSlots();
+  showMode();
+}
+
+// NASCAR: no drawing your own track (they're all real ovals); New track goes round them in turn
+function showMode() {
+  const nascar = watchedTracks() === 'nascar';
+  $('#btn-draw').hidden = nascar;
+  $('#btn-track').textContent = nascar ? 'Next oval' : 'New track';
+  $('#btn-track').title = nascar ? 'The 32 real ovals in turn (N)' : 'N';
 }
 
 async function slotAction(params) {
@@ -381,7 +440,9 @@ function updateHud() {
     saved: `GEN ${plan?.gen} · PAUSED`,
   }[plan?.kind];
   showPhase();
-  $('#tower-head').textContent = `${head} · LAP ${Math.min(heat.laps, lead.laps.length + 1)}/${heat.laps}`;
+  const control = heat.control, total = lead.raceLaps, done = lead.laps.length + lead.freeLaps - lead.yellowLaps;
+  $('#tower-head').textContent = `${head} · LAP ${Math.min(total, done + 1)}/${total}${control?.overtime ? ' · OT' : ''}${control?.flag === 'yellow' ? ' · CAUTION' : ''}`;
+  showFlags(heat, focus);
   const shown = standings.slice(0, 12);
   if (focus && !shown.includes(focus)) shown[shown.length - 1] = focus;
   shown.forEach((car, i) => {
@@ -399,7 +460,7 @@ function updateHud() {
   if (race) {
     const you = race.you;
     $('#race-pos').textContent = `P${standings.indexOf(you) + 1}/${heat.cars.length}`;
-    $('#race-lap').textContent = `${Math.min(heat.laps, you.laps.length + 1)}/${heat.laps}`;
+    $('#race-lap').textContent = `${Math.min(heat.laps, you.laps.length + you.freeLaps - you.yellowLaps + 1)}/${heat.laps}`;
     $('#race-time').textContent = (you.steps / 60).toFixed(2);
     $('#race-dmg').textContent = damageText(you);
   } else {
@@ -416,11 +477,36 @@ function updateHud() {
 
   const car = race ? race.you : focus;
   if (car) $('#car-stats').innerHTML = [
-    ['speed', `${Math.round(Math.max(0, car.forwardSpeed) * KMH)} km/h`],
+    ['speed', car.spec.stock ? `${Math.round(Math.max(0, car.forwardSpeed) * MPH_PER_SPEED)} mph` : `${Math.round(Math.max(0, car.forwardSpeed) * KMH)} km/h`],
     ['slipstream', `${Math.round(car.draft * 100)}%`],
     ['aero lost F·R · drag', damageText(car)],
     ['wall hits', car.wallHits],
+    ...track.nascar ? [
+      ['banking · surface', `${Math.round(track.bankAt(car.lastArc, track.lateralAt(car.x, car.y)) * 180 / Math.PI)}° · ${SURFACE_NAME[car.surface]}`],
+      ['flags', car.parked ? 'parked' : car.penalty ? 'black: stop-and-go' : car.blueFlag ? 'blue-yellow' : car.paced ? 'following the pace car' : '—'],
+    ] : [],
   ].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
+}
+
+const SURFACE_NAME = ['asphalt', 'apron', 'grass', 'sand', 'pit road', 'off track'];
+// the flag stand: the race's flag and the latest word from race control; the big calls also pop up as toasts
+let lastCall = null;
+function showFlags(heat, focus) {
+  const control = heat.control, stand = $('#flagstand');
+  stand.hidden = !control || !!sketch;
+  if (stand.hidden) return;
+  const flag = focus?.penalty ? 'black' : control.flag, [color, label] = FLAG_STYLE[flag] ?? FLAG_STYLE.green;
+  const said = control.log.at(-1), swatch = stand.querySelector('i');
+  swatch.className = color === 'checkered' ? 'checkered' : '';
+  swatch.style.background = color === 'checkered' ? '' : color;
+  stand.querySelector('b').textContent = control.overtime && flag !== 'checkered' ? `${label} · OVERTIME` : label;
+  stand.querySelector('b').style.color = flag === 'black' ? '#f5f5f5' : color === 'checkered' ? '#f5f5f5' : color;
+  stand.querySelector('small').textContent = focus?.penalty ? `${nameOf(focus)}: stop-and-go penalty` : said?.text ?? '';
+  if (said && said !== lastCall) {
+    const first = lastCall === null || !control.log.includes(lastCall);
+    lastCall = said;
+    if (!first && said.flag !== 'green' && said.flag !== 'white') toast(`<b>${esc(said.text)}</b>`, said.flag === 'checkered' ? 'gold' : '');
+  }
 }
 
 // ---------- UI helpers ----------
@@ -479,20 +565,23 @@ function setTrack(next, message) {
 
 // ---------- race mode ----------
 
-// your rivals: the top 9 of the watched save's latest tournament
-const raceField = () => league?.population.slice().sort(byStrength).slice(0, RACE_FIELD - 1).map(a => ({ species: a.style, genes: a.weights }));
+// your rivals: the top 9 of the watched save's latest tournament (19 on an oval: it's pack racing)
+const raceField = () => league?.population.slice().sort(byStrength).slice(0, (track.nascar ? 2 * RACE_FIELD : RACE_FIELD) - 1).map(a => ({ species: a.style, genes: a.weights }));
 
 function startRace() {
   const drivers = raceField();
   if (!drivers) return toast('The first generation is still being set up. Give it a few seconds.');
   $('#intro').hidden = $('#results').hidden = true;
-  drivers.splice(HUMAN_SLOT, 0, null);
-  const heat = new Heat(track, drivers.map(d => d && new Brain(d.species.layers, d.genes)), HUMAN_RACE_LAPS);
+  const you = track.nascar ? 2 * HUMAN_SLOT : HUMAN_SLOT;
+  drivers.splice(you, 0, null);
+  const heat = new Heat(track, drivers.map(d => d && new Brain(d.species.layers, d.genes)), lapsOn(track, 'race', HUMAN_RACE_LAPS), { cars: carsFor(track) });
   heat.events = [];
-  heat.cars.forEach((car, slot) => Object.assign(car, { rank: slot < HUMAN_SLOT ? slot + 1 : slot, species: drivers[slot]?.species, pro: !!drivers[slot]?.species.design }));
-  race = { heat, you: heat.cars[HUMAN_SLOT], t: -180, steer: 0, count: null, endAt: Infinity };
+  heat.cars.forEach((car, slot) => Object.assign(car, { rank: slot < you ? slot + 1 : slot, species: drivers[slot]?.species, pro: !!drivers[slot]?.species.design }));
+  race = { heat, you: heat.cars[you], t: -180, steer: 0, count: null, endAt: Infinity };
   race.you.human = true;
+  dress(heat);
   state.mode = 'race';
+  stage.classList.add('racing');
   $('#hud').hidden = true;
   $('#race-hud').hidden = false;
   moveCamera(race.you, true);
@@ -545,6 +634,7 @@ function finishRace() {
 function exitRace() {
   race = null;
   state.mode = pros ? 'pros' : 'train';
+  stage.classList.remove('racing');
   banner('');
   $('#results').hidden = $('#race-hud').hidden = true;
   $('#hud').hidden = false;
@@ -575,21 +665,23 @@ function evolvingPlan(next) {
     const duel = duels[k - pro.slots.length];
     if (duel) {
       const pair = [live.byName.get(pro.name), live.byName.get(duel.rival)];
-      return { ...base, duel, slot: duel.slot, trackSeed: duel.track, laps: duel.laps, grid: (duel.slot ? pair.reverse() : pair).map(entry) };
+      return { ...base, duel, slot: duel.slot, trackRef: duel.track, laps: duel.laps, grid: (duel.slot ? pair.reverse() : pair).map(entry) };
     }
-    const grid = pro.rivals.map(name => live.byName.get(name));
+    const grid = pro.rivals.map(name => live.byName.get(name)), laps = p.practice.laps;
     grid.splice(pro.slots[k], 0, live.byName.get(pro.name));
-    return { ...base, slot: pro.slots[k], trackSeed: p.practice.tracks[k], laps: p.practice.laps, grid: grid.map(entry) };
+    return { ...base, slot: pro.slots[k], trackRef: p.practice.tracks[k], laps: Array.isArray(laps) ? laps[k] : laps, grid: grid.map(entry) };
   }
-  // a grid holds 20: bigger populations race in random fields of 20, like the engine's tournament
+  // a grid holds 20 (40 on the ovals): bigger populations race in random fields, like the engine's tournament
+  const field = homeMode().tracks === 'nascar' ? 40 : 20;
   if (p?.phase === 'tournament' && p.tournament) {
-    const k = prev?.kind === 'tournament' && prev.gen === p.generation ? (prev.k + 1) % p.tournament.tracks.length : 0;
-    return { kind: 'tournament', k, trackSeed: p.tournament.tracks[k], laps: p.tournament.laps, grid: shuffle(live.population.map(entry)).slice(0, 20), gen: p.generation };
+    const k = prev?.kind === 'tournament' && prev.gen === p.generation ? (prev.k + 1) % p.tournament.tracks.length : 0, laps = p.tournament.laps;
+    return { kind: 'tournament', k, trackRef: p.tournament.tracks[k], laps: Array.isArray(laps) ? laps[k] : laps, grid: shuffle(live.population.map(entry)).slice(0, field), gen: p.generation };
   }
-  // paused: the 20 best of the latest saved generation
+  // paused: the best of the latest saved generation, on its tournament's tracks
   const k = prev?.kind === 'saved' && prev.gen === league.generation ? (prev.k + 1) % TOURNEY_TRACKS : 0;
-  const top = league.population.slice().sort(byStrength).slice(0, 20);
-  return { kind: 'saved', k, trackSeed: tourneyTrack(league.generation, k), laps: 10, grid: shuffle(top.map(entry)), gen: league.generation };
+  const top = league.population.slice().sort(byStrength).slice(0, field);
+  const trackRef = homeMode().tracks === 'nascar' ? seasonOvals(league.generation)[k] : tourneyTrack(league.generation, k);
+  return { kind: 'saved', k, trackRef, laps: homeMode().tracks === 'nascar' ? lapsFor(trackRef, RACE_METRES.saved) : 10, grid: shuffle(top.map(entry)), gen: league.generation };
 }
 
 function showPhase() {
@@ -597,12 +689,13 @@ function showPhase() {
   chip.hidden = !plan || state.playing || !!race || !!sketch;
   if (chip.hidden) return;
   const color = name => pros.heat.cars.find(car => car.species.name === name)?.species.color;
+  const at = track.nascar ? ` at ${esc(track.name)}${track.plate ? ', restrictor plates' : ''}` : '';
   const html = {
     practice: () => plan.duel ? `<b>Duel</b> · generation ${plan.gen}, round ${plan.round} of ${plan.rounds}<small><b style="color:${color(plan.learner)}">${esc(plan.learner)}</b> is learning to ${plan.slot ? 'attack' : 'defend'}: ${plan.laps} laps against <b style="color:${color(plan.duel.rival)}">${esc(plan.duel.rival)}</b>, starting ${plan.slot ? 'behind' : 'in front'}. Only the winner scores, so ${plan.slot ? 'it has to get past, by out-braking it or spinning it round' : 'it has to hold on and keep its rear corners covered'}. ${plan.copies} versions of it are racing this right now.</small>`
       : `<b>Practice</b> · generation ${plan.gen}, round ${plan.round} of ${plan.rounds}<small><b style="color:${color(plan.learner)}">${esc(plan.learner)}</b> is learning, starting P${plan.slot + 1}. The engine is racing ${plan.copies} slightly different versions of it in this exact race right now, then nudging it toward the ones that did better. Click any car to watch it learn next.</small>`,
     tournament: () => `<b>Tournament</b> · judging generation ${plan.gen}, track ${plan.k + 1} of ${TOURNEY_TRACKS}<small>No learning here: these races rank everyone, and in each design the slowest brain is replaced by a copy of the best.</small>`,
     saved: () => `<b>Generation ${plan.gen}</b> · learning is paused<small>The latest saved cars on the tracks their tournament was raced on.</small>`,
-  }[plan.kind]();
+  }[plan.kind]().replace('</b>', `</b>${at}`);
   if (chip.dataset.html !== html) chip.innerHTML = chip.dataset.html = html;
 }
 
@@ -614,17 +707,22 @@ function startPros(go = true, next = false) {
   if (race) exitRace();
   if (sketch) stopDrawing();
   const plan = state.playing ? null : evolvingPlan(next);
-  if (plan) useTrack(Track.random(mulberry32(plan.trackSeed)));
-  const best20 = () => shuffle(league.population.slice().sort(byStrength).slice(0, 20).map(a => ({ weights: a.weights, species: a.style })));
-  const grid = plan ? plan.grid : best20();
-  const heat = new Heat(track, grid.map(d => new Brain(d.species.layers, d.weights)), plan ? plan.laps : sim.laps);
+  if (plan) useTrack(trackFor(plan.trackRef, watchedTracks()));
+  const best = () => shuffle(league.population.slice().sort(byStrength).slice(0, track.nascar ? 40 : 20).map(a => ({ weights: a.weights, species: a.style })));
+  const grid = plan ? plan.grid : best();
+  // on the save's own tracks the engine's lap count; elsewhere the same kind of race at that track's length
+  const away = !!track.nascar !== (homeMode().tracks === 'nascar'), kind = !plan ? 'tournament' : plan.duel ? 'duel' : plan.kind;
+  const laps = !plan ? lapsOn(track, 'tournament', sim.laps) * (track.nascar ? sim.laps / 10 : 1) : away ? lapsOn(track, kind, { practice: 3, duel: 2 }[kind] ?? 10) : plan.laps;
+  const heat = new Heat(track, grid.map(d => new Brain(d.species.layers, d.weights)), Math.max(2, Math.round(laps)), {
+    cars: carsFor(track), stages: track.nascar && kind !== 'practice' && kind !== 'duel', practice: kind === 'practice' || kind === 'duel',
+  });
   heat.events = [];
   heat.cars.forEach((car, i) => Object.assign(car, { pro: true, species: grid[i].species }));
-  // follow the learner in practice; otherwise keep following the same driver into the next race
-  const followed = plan?.learner ?? state.picked ?? state.focus?.species?.name;
+  dress(heat);
   pros = { heat, count: (pros?.count ?? 0) + 1, nextAt: null, gen: plan?.gen ?? league.generation, plan };
   state.mode = 'pros';
-  state.focus = lastFocus = followed ? heat.cars.find(car => car.species.name === followed) ?? null : null;
+  // the camera follows the leader; a car clicked during the race takes over until it drops out or the race ends
+  state.focus = lastFocus = null;
   showPhase();
   if (!go) return;
   $('#intro').hidden = true;
@@ -770,7 +868,12 @@ $('#btn-track').onclick = () => {
   if (sketch) stopDrawing();
   if (race) exitRace();
   play();
-  setTrack(Track.random(), 'New track. <b>None of these brains have ever seen it.</b>');
+  if (watchedTracks() === 'nascar') {
+    // the real ovals in turn, Daytona to Pikes Peak
+    const def = NASCAR_TRACKS[state.oval = (state.oval + 1) % NASCAR_TRACKS.length], next = trackFor(def.id, 'nascar');
+    const bank = Math.round(Math.max(...next.bankHi) * 180 / Math.PI);
+    setTrack(next, `<b>${esc(def.name)}</b>: ${(next.length / UNITS_PER_M / 1609.344).toFixed(3)} mi, ${bank}° banking, ${def.pkg === 'plate' ? 'restrictor plates: pack racing' : '670 hp'} · pole ${Math.round(next.refSpeed * MPH_PER_SPEED)} mph`);
+  } else setTrack(Track.random(), 'New track. <b>None of these brains have ever seen it.</b>');
   if (!$('#intro').hidden) begin();
 };
 $('#btn-draw').onclick = startDrawing;
@@ -797,12 +900,61 @@ $('#settings-close').onclick = () => toggleSettings(false);
 
 // no browser dialogs here: the embedded browser may block them, which silently cancelled every action
 $('#btn-slot-scratch').onclick = async () => {
-  const res = await slotAction({ action: 'new', from: 'scratch' });
+  const res = await slotAction({ action: 'new', from: 'scratch', tracks: 'normal' });
   if (res.id) await slotAction({ action: 'train', id: res.id });
 };
+$('#btn-slot-nascar').onclick = async () => {
+  const res = await slotAction({ action: 'new', from: 'scratch', tracks: 'nascar', cars: 'stock' });
+  if (res.id) await slotAction({ action: 'train', id: res.id });
+};
+
+// copying a save into the other mode: its brains, in their own cars or the other mode's
+let converting = null;
+function showConvert(id) {
+  const from = modeOf(id), tracks = from.tracks === 'nascar' ? 'normal' : 'nascar';
+  converting = { id, tracks, from, cars: 'own' };
+  $('#convert').hidden = false;
+  $('#convert-text').innerHTML = `Copy <b>${esc(slotName(id))}</b> into <b>${tracks === 'nascar' ? 'NASCAR' : 'normal'} mode</b>, where it starts a new evolution from these brains:`;
+  $('#convert-host').textContent = `Drive the ${homeCars(tracks)} cars`;
+  document.querySelectorAll('#convert [data-cars]').forEach(b => b.classList.toggle('on', b.dataset.cars === 'own'));
+}
+$('#convert').addEventListener('click', async e => {
+  const choice = e.target.closest('[data-cars]')?.dataset.cars;
+  if (choice) {
+    converting.cars = choice;
+    document.querySelectorAll('#convert [data-cars]').forEach(b => b.classList.toggle('on', b.dataset.cars === choice));
+  }
+  if (e.target.id === 'convert-cancel') $('#convert').hidden = true;
+  if (e.target.id !== 'convert-go') return;
+  const { id, tracks, from, cars } = converting;
+  $('#convert').hidden = true;
+  const res = await slotAction({ action: 'new', from: id, tracks, cars: cars === 'own' ? from.cars : homeCars(tracks), name: `${slotName(id)} ${tracks === 'nascar' ? 'NASCAR' : 'normal'}` });
+  if (res.id) {
+    await slotAction({ action: 'train', id: res.id });
+    toast(`Copied into ${tracks === 'nascar' ? 'NASCAR' : 'normal'} mode as <b>${esc(slotName(res.id))}</b>. Its first tournament in the new mode is running.`);
+  }
+});
+
+$('#watch-tracks').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const home = homeMode().tracks;
+  state.away = b.dataset.tracks ? (home === 'nascar' ? 'normal' : 'nascar') : null;
+  drawSlots();
+  showMode();
+  if (!race && !sketch && league) state.playing ? backToEvolving() : startPros(!state.paused);
+});
+$('#watch-cars').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  state.awayCars = b.dataset.cars;
+  drawSlots();
+  if (!race && !sketch && league && state.away) startPros(!state.paused);
+});
 $('#slot-list').addEventListener('click', async e => {
   const id = e.target.closest('.slot')?.dataset.id;
   if (!id) return;
+  if (e.target.closest('[data-act="convert"]')) return showConvert(id);
   if (e.target.closest('[data-act="delete"]')) {
     // two clicks on the same button: the first arms it for a few seconds, the second deletes
     if (armedDelete?.id === id && Date.now() < armedDelete.until) {
@@ -831,7 +983,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Space') $('#btn-pause').click();
   if (e.code === 'KeyC') $('#btn-camera').click();
   if (e.code === 'KeyN') $('#btn-track').click();
-  if (e.code === 'KeyD') $('#btn-draw').click();
+  if (e.code === 'KeyD' && !$('#btn-draw').hidden) $('#btn-draw').click();
   if (e.code === 'KeyR') $('#btn-race').click();
   if (e.code === 'KeyS') toggleSettings();
   if (e.code === 'KeyE' && state.playing) backToEvolving();
