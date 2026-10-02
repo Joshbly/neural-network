@@ -87,22 +87,23 @@ main { flex: 1; display: flex; gap: 12px; padding: 0 12px 12px; min-height: 0; }
 #view { display: block; width: 100%; height: 100%; touch-action: none; cursor: pointer; }
 #stage.drawing #view { cursor: crosshair; }
 
-#hud, #race-hud { position: absolute; top: 12px; display: flex; gap: 2px; padding: 6px 4px; background: rgba(6, 10, 16, 0.74); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 11px; }
-#hud { left: 12px; }
-#race-hud { left: 50%; transform: translateX(-50%); border-color: rgba(255, 209, 102, 0.4); }
-#hud > div, #race-hud > div { padding: 0 11px; border-right: 1px solid rgba(255, 255, 255, 0.06); }
-#hud > div:last-child, #race-hud > div:last-child { border: 0; }
-#hud span, .tiles span, #race-hud span { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); }
-#hud b, #race-hud b { font: 700 17px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+#race-hud { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; padding: 6px 4px; background: rgba(6, 10, 16, 0.74); backdrop-filter: blur(8px); border: 1px solid rgba(255, 209, 102, 0.4); border-radius: 11px; }
+#race-hud > div { padding: 0 11px; border-right: 1px solid rgba(255, 255, 255, 0.06); }
+#race-hud > div:last-child { border: 0; }
+.tiles span, #race-hud span { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); }
+#race-hud b { font: 700 17px ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
 #race-hud b { color: var(--gold); }
 .clickable { cursor: pointer; border-radius: 6px; }
 .clickable:hover span { color: var(--cyan); }
 
 #tower {
   position: absolute;
-  top: 74px;
+  top: 12px;
   left: 12px;
   width: 196px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  scrollbar-width: none;
   background: rgba(6, 10, 16, 0.74);
   backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -113,6 +114,7 @@ main { flex: 1; display: flex; gap: 12px; padding: 0 12px 12px; min-height: 0; }
 .tower-head { padding: 0 10px 5px; font-size: 10px; letter-spacing: 0.12em; color: var(--dim); border-bottom: 1px solid rgba(255, 255, 255, 0.06); margin-bottom: 3px; }
 #tower ol { list-style: none; margin: 0; padding: 0; }
 #tower li { display: grid; grid-template-columns: 20px 4px 1fr auto; gap: 7px; align-items: center; padding: 4px 10px; cursor: pointer; user-select: none; }
+#tower.dense li { padding: 1px 10px; }
 #tower li:hover { background: rgba(255, 255, 255, 0.04); }
 #tower li.focus { background: rgba(56, 225, 255, 0.12); }
 #tower li.out { opacity: 0.4; }

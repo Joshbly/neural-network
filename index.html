@@ -18,6 +18,7 @@
     <nav>
       <button id="btn-pause" title="Space">Pause</button>
       <div class="segmented" id="speed" title="Simulation speed (1–5)"></div>
+      <div class="segmented channels" id="channels"></div>
       <button id="btn-camera" title="C">Camera: follow</button>
       <button id="btn-track" title="N">New track</button>
       <button id="btn-draw" title="D">Draw track</button>
@@ -29,13 +30,6 @@
   <main>
     <section id="stage">
       <canvas id="view"></canvas>
-
-      <div id="hud">
-        <div><span id="hud-gen-label">Generation</span><b id="hud-gen">0</b></div>
-        <div id="hud-heat"><span id="hud-heat-label">Race</span><b id="hud-heat-n">1</b></div>
-        <div><span>Racing</span><b id="hud-alive">20</b></div>
-        <div><span>Speed</span><b id="hud-speed">3×</b></div>
-      </div>
 
       <div id="tower">
         <div class="tower-head" id="tower-head">LAP 1/10</div>
@@ -142,7 +136,7 @@
           <div><span>Per generation</span><b id="stat-gen-time">—</b></div>
         </div>
         <table class="designs" id="design-table"></table>
-        <label class="chart-label" id="vs-label">The best 10 now vs a frozen panel of past champions (gold: now · grey: the panel)</label>
+        <label class="chart-label" id="vs-label" title="Every 5 generations, each design's best brain races 96 races against frozen past champions on fixed tracks. Every result ever recorded is fitted to one rating per brain, so the scale means the same thing all run long: 400 points is 10x stronger. Shading: the 95% range.">Rating of each design's best (higher is better · shading: 95% range)</label>
         <canvas id="chart-vs" class="chart"></canvas>
         <label class="chart-label">Fastest tournament lap by design, each generation (lower is faster)</label>
         <canvas id="chart-laps" class="chart"></canvas>
@@ -156,38 +150,41 @@
         <h3>What to watch for</h3>
         <ol>
           <li><b>From nothing:</b> generation 0 is random wiring. Expect cars that drive straight into the first wall. Watch the fastest-lap chart: first nobody finishes a lap, then laps start appearing, then they get quicker.</li>
-          <li><b>How they learn:</b> each generation every brain races hundreds of practice races against the others, always on brand-new tracks, and its weights are nudged toward whatever finished better. Then a 24-race tournament ranks everyone, and in each design the laggard is replaced by a copy of its best sibling (<b>A1·2</b> is the second of A1's line). Designs never mix and each keeps four seats, so the standings fairly answer "which brain is best?"</li>
-          <li><b>How a brain drives:</b> 38 numbers come in (wall and car distances, where the road goes next, speed, slide, slipstream, its own damage) and two come out (steering, throttle). The <b>X-ray</b> under the brain shows which inputs are moving its hands right now.</li>
-          <li><b>Stock-car aero:</b> sit in someone's draft to build a run; the speed carries for about a second after you pull out, enough to slingshot alongside. Glue yourself to their bumper and you push them faster too.</li>
-          <li><b>Winning is everything:</b> a win is worth more than twice second place, and the rest of the field slides toward nothing, so P2 is never good enough. Every moment spent leading earns a bonus too: take the lead and keep everyone else from winning. Lap times only break ties. The tournament judges the same way, so the brains that survive are the ones that win.</li>
-          <li><b>No riding bumpers:</b> drafting from a few lengths back is free, but every moment spent glued to the bumper of the car ahead (within two lengths) costs reward in practice, so they learn to pull out and pass instead of sitting there. The <b>Tail</b> column shows how much of a race each design still spends on someone's bumper.</li>
+          <li><b>How they learn:</b> each generation every brain races hundreds of practice races against the others, always on brand-new tracks, and its weights are nudged toward whatever finished better. Then a 24-race tournament ranks everyone, and in each design a brain that's clearly behind over its last three tournaments is replaced by a slightly mutated copy of a strong sibling (<b>A1·2</b> is the second of A1's family). No family may hold more than half a design's seats, so every design keeps at least two different ways of driving to evolve from. Designs never mix and each keeps four seats, so the standings fairly answer "which brain is best?"</li>
+          <li><b>The rating:</b> practice scores can't show progress, because everyone improves together. So every 5 generations each design's best races 96 races against frozen past champions on fixed tracks, and all the results ever recorded are turned into one rating per brain, like chess Elo: 400 points means 10 times stronger, generation 0 is 1000, and the shading shows how sure the number is. A rising line is real improvement.</li>
+          <li><b>How a brain drives:</b> 40 numbers come in (wall and car distances, where the road goes next, how far it is from the edge of the racing surface and of the pavement (negative once it's down on the apron or the grass), speed, slide, slipstream, its own damage) and two come out (steering, throttle). The <b>X-ray</b> under the brain shows which inputs are moving its hands right now.</li>
+          <li><b>Stock-car aero:</b> sit in someone's draft to build a run; the speed carries for about a second after you pull out, enough to slingshot alongside. Glue yourself to their bumper and you push them faster too: a pair nose to tail laps a plate track about 6% quicker than a car alone, but the pusher is only towing the leader to the line, and to win it has to pull out and lose the draft. Pull your nose up to someone's rear quarter and you side-draft them: their car slows and goes loose, because you've taken the air off their spoiler (a push through a corner does the same). Running two wide is slow for both, since neither car has clean air, so a long side-by-side fight lets the pack behind catch up.</li>
+          <li><b>Winning is everything:</b> a win is worth more than twice second place, and the rest of the field slides toward nothing, so P2 is never good enough. Leading most of the race and losing at the line is still losing: time in front and lap times only break ties. The tournament judges the same way, so the brains that survive are the ones that win.</li>
+          <li><b>Riding bumpers:</b> nothing in the scoring punishes it. Glued to someone's bumper you just push them toward the win, so the only way to score is to pull out and pass. The <b>Tail</b> column shows how much of a race each design still spends on someone's bumper, and <b>Rub</b> how much door to door.</li>
           <li><b>Rear-wheel drive:</b> too much throttle out of a slow corner spins the rear wheels and swings the tail out, braking hard while turning at speed lightens the rear, and a shove on the rear quarter can spin a car round. Feather the throttle and countersteer and you can hold a drift. Tyre smoke shows when the rear is sliding.</li>
           <li><b>Attack and defend:</b> put your nose on the rear corner of the car ahead at speed and steer into it, and a leader that does nothing gets thrown sideways or spun. A leader that catches it with countersteer survives, and the attacker can wreck its own nose trying. Practice includes two-car duels where only the winner scores: starting behind, the only way to score is to get past, so the brains learn to out-brake or spin the car ahead; starting in front, they learn to hold on and cover their rear corners.</li>
           <li><b>Rubbin's racing, until it isn't:</b> bump-drafting is free and door-to-door rubbing only dents sheet metal, but damage climbs steeply with impact speed: a wrecked splitter means no front grip, a lost spoiler means a loose rear, and a big hit bends the suspension or ends the race.</li>
           <li><span class="cyan">Blue cones</span> are slipstreams. <span class="pink">Pink rays</span> show a car spotting a rival. The <span class="orange">orange beads</span> are the road ahead the focused car is reading.</li>
-          <li><b>Evolving vs playing:</b> by default the screen shows what the engine is doing right now: a real practice race from the current round (one brain learning, with 96 versions of it racing that exact race on the engine), or a tournament race while the generation is being judged. <b>New track</b>, <b>Draw track</b> and <b>Race the AI</b> switch to playing: the same cars on your track, just for fun; learning carries on in the background. <b>Back to evolving</b> returns to the live view.</li>
+          <li><b>Channels:</b> every race on screen is one the engine really ran, car for car: the same track, grid, rules and weights, and each practice copy rebuilt from its own seed. <b>Live</b> follows the engine (practice, then the tournament); <b>Practice</b> and <b>Duels</b> show this round's practice; <b>Tournament</b> the latest tournament's official races and <b>Rating</b> the latest rating round, each checked against the official result at the flag. <b>New track</b>, <b>Draw track</b> and <b>Race the AI</b> switch to playing: the same cars on your track, just for fun; learning carries on in the background. <b>Back to evolving</b> returns to the channels.</li>
           <li>Then <b>race them yourself</b>: you start mid-pack against the loaded save's top 9.</li>
           <li class="nascar-tip"><b>NASCAR mode:</b> the 32 real ovals, from Daytona to Bowman Gray, traced from OpenStreetMap with their real banking, width, aprons and grass. The cars are real Cup car size (4.97 m × 1.99 m) and lap at real qualifying speed: about 190 mph at Daytona, 130 at Bristol, 95 at Martinsville. The five designs race as five teams, every car with its own number, colours and (made-up) sponsor.</li>
           <li class="nascar-tip"><b>Packs and plates:</b> at Daytona, Talladega and Atlanta the engines are choked to about 510 hp, so nobody can pull away alone: the draft is everything, cars run two and three wide in a pack, and a pushing line can sweep past. Everywhere else it's 670 hp, where handling in the corners matters more than the draft.</li>
           <li class="nascar-tip"><b>Banking:</b> the steep corners hold a car up like a wall of a bowl, so the high line at a progressively banked track like Bristol carries more speed. Run off the bottom onto the flat apron or the grass and the grip is gone; the infield grass and sand slow you hard.</li>
           <li class="nascar-tip"><b>The yellow line:</b> at the plate tracks, passing with all four wheels below the double yellow line is a black flag, and practice docks reward for any time spent down there.</li>
-          <li class="nascar-tip"><b>Flags:</b> green to go; yellow for a spin, a stopped car or a wreck (the field freezes, follows the pace car, the first lapped car gets its lap back, and the car that caused it restarts at the back of its group); caution laps don't count, so a race always gets its full green distance; short races (practice, duels, under 5 laps) have no cautions at all, a spin only costs the car that spun; double-file restarts in the restart zone; white for the last lap; checkered; overtime: a caution on the final lap means a green-white-checkered, two attempts, then the next caution ends it under yellow; red for a big wreck; black for a stop-and-go; red-and-black parks a car too damaged to go on; blue-and-yellow tells lapped cars the leaders are coming. Tournament races have two stage breaks. No pit stops, fuel or tyre wear: races are sprints, and damage is for keeps.</li>
+          <li class="nascar-tip"><b>Flags:</b> green to go; yellow for a spin, a stopped car or a wreck (the field freezes, follows the pace car, the first lapped car gets its lap back, and the car that caused it restarts at the back of its group); caution laps don't count, so a race always gets its full green distance; short races (practice, duels, under 5 laps) have no cautions at all, a spin only costs the car that spun; and a save's races stay green until it reaches generation 100 (young brains wreck too often for cautions to mean anything), with stage breaks still awarding points; double-file restarts in the restart zone; white for the last lap; checkered; overtime: a caution on the final lap means a green-white-checkered, two attempts, then the next caution ends it under yellow; red for a big wreck; black for a stop-and-go; red-and-black parks a car too damaged to go on; blue-and-yellow tells lapped cars the leaders are coming. Tournament races have two stage breaks. No pit stops, fuel or tyre wear: races are sprints, and damage is for keeps.</li>
         </ol>
       </div>
     </aside>
   </main>
 
-  <script src="js/nn-wasm.js?v=42"></script>
-  <script src="js/nn.js?v=42"></script>
-  <script src="js/nascar-tracks.js?v=42"></script>
-  <script src="js/track.js?v=42"></script>
-  <script src="js/car.js?v=42"></script>
-  <script src="js/racecontrol.js?v=42"></script>
-  <script src="js/heat.js?v=42"></script>
-  <script src="js/sim.js?v=42"></script>
-  <script src="js/viz.js?v=42"></script>
-  <script src="js/render.js?v=42"></script>
-  <script src="js/nascar.js?v=42"></script>
-  <script src="js/main.js?v=42"></script>
+  <script src="js/dmath.js?v=53"></script>
+  <script src="js/nn-wasm.js?v=53"></script>
+  <script src="js/nn.js?v=53"></script>
+  <script src="js/nascar-tracks.js?v=53"></script>
+  <script src="js/track.js?v=53"></script>
+  <script src="js/car.js?v=53"></script>
+  <script src="js/racecontrol.js?v=53"></script>
+  <script src="js/heat.js?v=53"></script>
+  <script src="js/sim.js?v=53"></script>
+  <script src="js/viz.js?v=53"></script>
+  <script src="js/render.js?v=53"></script>
+  <script src="js/nascar.js?v=53"></script>
+  <script src="js/replay.js?v=53"></script>
+  <script src="js/main.js?v=53"></script>
 </body>
 </html>

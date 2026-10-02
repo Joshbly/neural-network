@@ -122,6 +122,72 @@ const alone = daytonaLap(1), pack = daytonaLap(6);
 console.log(`  Daytona, second lap flat out: alone ${alone.toFixed(2)} s, in a six-car train ${pack.toFixed(2)} s`);
 ok(pack < alone * 0.99, 'the pack is faster than a lone car at a plate track');
 
+// racing in traffic: two wide is slow for both, a push through a corner gets the leader loose, a side draft
+// slows the car being side-drafted
+function formation(id, setup, laps = 3) {
+  const t = built.get(id), heat = new E.Heat(t, Array(setup.length).fill(null), laps, { cars: 'stock', practice: true }), drive = scripted(t, E.stockSpec(t));
+  heat.cars.forEach((car, i) => {
+    const arc = t.length - 40 - setup[i].back, [x, y] = t.pointAt(arc, setup[i].lane), angle = t.headingAt(arc);
+    Object.assign(car, { x, y, angle, lastArc: arc, progress: arc - t.length });
+    car.gridOffset = -car.progress;
+    car.checkpoint = car.progress;
+  });
+  const loose = heat.cars.map(() => 0);
+  let steps = 0;
+  while (!heat.over) {
+    heat.cars.forEach((car, i) => car.running && !car.paced && drive(heat, car, { pace: setup[i].pace ?? 2, lane: setup[i].lane }));
+    heat.tick();
+    steps++;
+    heat.cars.forEach((car, i) => loose[i] += car.rearLoose);
+  }
+  return heat.cars.map((car, i) => ({ lap: car.laps[1] / 60, loose: loose[i] / steps }));
+}
+{
+  const [solo] = formation('daytona', [{ back: 0, lane: 0 }]), wide = formation('daytona', [{ back: 0, lane: -5 }, { back: 0, lane: 5 }]);
+  const cornerSolo = formation('kansas', [{ back: 0, lane: 0, pace: 0.97 }]), cornerPushed = formation('kansas', [{ back: 0, lane: 0, pace: 0.97 }, { back: 21, lane: 0, pace: 1.3 }]);
+  console.log(`  Daytona lap 2: alone ${solo.lap.toFixed(2)} s, two wide ${wide.map(c => c.lap.toFixed(2)).join(' / ')} s; Kansas leader loose ${(100 * cornerSolo[0].loose).toFixed(1)}% alone, ${(100 * cornerPushed[0].loose).toFixed(1)}% pushed`);
+  ok(wide.every(c => c.lap > solo.lap + 0.3), 'running two wide is slower for both cars');
+  ok(cornerPushed[0].loose > cornerSolo[0].loose + 0.1, 'a push through a corner takes the air off the leader\'s spoiler: it gets loose');
+  const t = built.get('daytona'), heat = new E.Heat(t, [null, null], 3, { cars: 'stock', practice: true }), drive = scripted(t, E.stockSpec(t));
+  heat.tick();
+  const [a, b] = heat.cars, arc = t.length * 0.35, h = t.headingAt(arc), v = 170 / E.MPH_PER_SPEED;
+  const put = (car, back, lane) => { const [x, y] = t.pointAt(arc - back, lane); Object.assign(car, { x, y, angle: h, vx: Math.cos(h) * v, vy: Math.sin(h) * v, spin: 0, lastArc: arc - back, paced: false }); };
+  put(a, 0, -5);
+  put(b, 12, 5.6);
+  for (let k = 0; k < 120; k++) {
+    drive(heat, a, { pace: 2, lane: -5 });
+    drive(heat, b, { pace: 2, lane: 5.6 });
+    heat.tick();
+  }
+  ok(Math.hypot(b.vx, b.vy) > Math.hypot(a.vx, a.vy), 'a nose on the rear quarter side-drafts the car ahead: it slows');
+}
+
+// bodies are their outlines: a bump to the bumper, even half a metre off-centre, pushes the car ahead straight on
+function bump(offsetUnits) {
+  const t = built.get('michigan'), heat = new E.Heat(t, [null, null], 3, { cars: 'stock', practice: true });
+  heat.tick();
+  const [lead, chase] = heat.cars, arc = t.length * 0.5, h = t.headingAt(arc);
+  const place = (car, back, lat, speed) => {
+    const [x, y] = t.pointAt(arc - back, lat);
+    Object.assign(car, { x, y, angle: h, vx: Math.cos(h) * speed, vy: Math.sin(h) * speed, spin: 0, lastArc: arc - back, paced: false, manualSteer: 0, manualThrottle: 0, steer: 0 });
+  };
+  place(lead, 0, 0, 4);
+  place(chase, 21, offsetUnits, 4.6);
+  let sideways = 0;
+  for (let k = 0; k < 60; k++) {
+    heat.tick();
+    sideways = Math.max(sideways, Math.abs(-lead.vx * Math.sin(lead.angle) + lead.vy * Math.cos(lead.angle)));
+  }
+  return { sideways, gained: lead.vx * Math.cos(lead.angle) + lead.vy * Math.sin(lead.angle) - 4 };
+}
+{
+  const square = bump(0), offset = bump(2);
+  console.log(`  bump from behind: car ahead gains ${square.gained.toFixed(2)}, sideways ${square.sideways.toFixed(3)} square on, ${offset.sideways.toFixed(3)} half a metre off-centre`);
+  ok(square.gained > 0.1 && square.sideways < 0.01 && offset.sideways < 0.05, 'a bump pushes the car ahead straight on, not aside');
+  const spec = E.NASCAR_670;
+  ok(spec.box.hx === spec.len / 2 && spec.box.hy === spec.wid / 2, 'the collision body is the drawn body: 4.97 m by 1.99 m');
+}
+
 // ---- 4. flags ----
 section('4. flag rules');
 // n scripted cars on their grid lanes; hooks run before each step
@@ -199,6 +265,13 @@ const leaderOf = heat => heat.standings().find(car => car.running) ?? heat.stand
   spinOut(short.heat.standings()[2], short.t);
   short.until(() => short.heat.done);
   ok(short.control.cautions === 0, 'so does any race under 5 laps');
+  // a young save's tournament races: a long race with stages, cautions off
+  const young = scriptedRace('martinsville', 12, 9, { stages: true, cautions: false });
+  young.until(() => young.heat.step > 1500);
+  spinOut(young.heat.standings()[2], young.t);
+  young.until(() => young.heat.done);
+  ok(young.control.cautions === 0 && young.said('Stage 1 ends') && young.heat.cars.reduce((s, car) => s + car.stagePoints, 0) === 110,
+    'with cautions off, a long race stays green and its stage breaks still pay points');
 }
 
 // overtime: a caution on the final lap means a green-white-checkered (the race still runs its full green

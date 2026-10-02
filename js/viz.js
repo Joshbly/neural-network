@@ -8,6 +8,7 @@ const INPUTS = [
   ...LOOKAHEAD.map(d => [`road +${d}`, '#ffb36b']),
   ['draft', '#9ecbff'], ['last steer', '#c9d4e5'], ['last gas', '#c9d4e5'], ['position', '#ffd166'],
   ['nose dmg', '#ff8a7a'], ['tail dmg', '#ff8a7a'],
+  ['track edge', '#ffd98a'], ['paved edge', '#ffd98a'],
 ];
 const CYAN = [56, 225, 255], PINK = [255, 79, 163], IDLE = [28, 34, 48];
 
@@ -181,6 +182,17 @@ function drawChart(ctx, w, h, { series, yMin, yMax, format, markers = [], ref, e
     ctx.fillText(ref.label, w - pad.r, Y(ref.value) - 2);
   }
   ctx.setLineDash([]);
+
+  // uncertainty bands, under every line: [x, low, high]
+  for (const { band, bandColor } of series) {
+    if (!band?.length) continue;
+    ctx.beginPath();
+    band.forEach(([x, lo], i) => i ? ctx.lineTo(X(x), Y(lo)) : ctx.moveTo(X(x), Y(lo)));
+    for (let i = band.length - 1; i >= 0; i--) ctx.lineTo(X(band[i][0]), Y(band[i][2]));
+    ctx.closePath();
+    ctx.fillStyle = bandColor;
+    ctx.fill();
+  }
 
   for (const { points: pts, color, fill } of series) {
     if (!pts.length) continue;

@@ -16,7 +16,7 @@ function mulberry32(seed) {
 function resampleLoop(pts, spacing) {
   const segs = pts.map((p, i) => {
     const q = pts[(i + 1) % pts.length];
-    return Math.hypot(q[0] - p[0], q[1] - p[1]);
+    return dhypot(q[0] - p[0], q[1] - p[1]);
   });
   const total = segs.reduce((a, b) => a + b, 0);
   const n = Math.max(8, Math.round(total / spacing)), step = total / n;
@@ -55,8 +55,8 @@ function convexHull(pts) {
   return chain(pts).concat(chain(pts.slice().reverse()));
 }
 
-const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
-const bend = (a, p, b) => Math.abs(wrapAngle(Math.atan2(b[1] - p[1], b[0] - p[0]) - Math.atan2(p[1] - a[1], p[0] - a[0])));
+const wrapAngle = a => datan2(dsin(a), dcos(a));
+const bend = (a, p, b) => Math.abs(wrapAngle(datan2(b[1] - p[1], b[0] - p[0]) - datan2(p[1] - a[1], p[0] - a[0])));
 
 function turnAt(pts, i) {
   const n = pts.length;
@@ -67,7 +67,7 @@ function turnAt(pts, i) {
 function simplifyPolygon(poly) {
   for (let i = 0; poly.length > 4 && i < poly.length;) {
     const n = poly.length, a = poly[(i - 1 + n) % n], p = poly[i];
-    if (bend(a, p, poly[(i + 1) % n]) < 0.12 || Math.hypot(p[0] - a[0], p[1] - a[1]) < 90) poly.splice(i, 1), i = 0;
+    if (bend(a, p, poly[(i + 1) % n]) < 0.12 || dhypot(p[0] - a[0], p[1] - a[1]) < 90) poly.splice(i, 1), i = 0;
     else i++;
   }
   return poly;
@@ -78,19 +78,19 @@ function filletPolygon(poly, rng) {
   const n = poly.length;
   const corners = poly.map((p, i) => {
     const a = poly[(i - 1 + n) % n], b = poly[(i + 1) % n];
-    const inLen = Math.hypot(p[0] - a[0], p[1] - a[1]), outLen = Math.hypot(b[0] - p[0], b[1] - p[1]);
+    const inLen = dhypot(p[0] - a[0], p[1] - a[1]), outLen = dhypot(b[0] - p[0], b[1] - p[1]);
     const din = [(p[0] - a[0]) / inLen, (p[1] - a[1]) / inLen], dout = [(b[0] - p[0]) / outLen, (b[1] - p[1]) / outLen];
     return {
       p, din,
-      turn: Math.acos(Math.max(-1, Math.min(1, din[0] * dout[0] + din[1] * dout[1]))),
+      turn: dacos(Math.max(-1, Math.min(1, din[0] * dout[0] + din[1] * dout[1]))),
       side: Math.sign(din[0] * dout[1] - din[1] * dout[0]),
-      r: R_MIN + (R_MAX - R_MIN) * rng() ** 2,
+      r: R_MIN + (R_MAX - R_MIN) * dpow(rng(), 2),
     };
   });
   for (let pass = 0; pass < 3; pass++)
     corners.forEach((c, i) => {
-      const next = corners[(i + 1) % n], edge = Math.hypot(next.p[0] - c.p[0], next.p[1] - c.p[1]);
-      const need = c.r * Math.tan(c.turn / 2) + next.r * Math.tan(next.turn / 2);
+      const next = corners[(i + 1) % n], edge = dhypot(next.p[0] - c.p[0], next.p[1] - c.p[1]);
+      const need = c.r * dtan(c.turn / 2) + next.r * dtan(next.turn / 2);
       if (need > edge * 0.92) {
         const k = edge * 0.92 / need;
         c.r *= k;
@@ -101,12 +101,12 @@ function filletPolygon(poly, rng) {
 
   const out = [];
   for (const { p, din, turn, side, r } of corners) {
-    const t = r * Math.tan(turn / 2), sx = p[0] - din[0] * t, sy = p[1] - din[1] * t;
+    const t = r * dtan(turn / 2), sx = p[0] - din[0] * t, sy = p[1] - din[1] * t;
     const cx = sx - din[1] * r * side, cy = sy + din[0] * r * side;
-    const a0 = Math.atan2(sy - cy, sx - cx), steps = Math.max(1, Math.ceil(turn * r / SPACING));
+    const a0 = datan2(sy - cy, sx - cx), steps = Math.max(1, Math.ceil(turn * r / SPACING));
     for (let k = 0; k <= steps; k++) {
       const a = a0 + side * turn * k / steps;
-      out.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+      out.push([cx + dcos(a) * r, cy + dsin(a) * r]);
     }
   }
   return out;
@@ -121,7 +121,7 @@ function trackProblem(pts) {
   for (let i = 0; i < n; i++)
     if (turnAt(pts, i) > 2 * SPACING / (HALF_WIDTH * 1.15)) return 'sharp';
   // wide grass gaps between neighbouring sections so a hard hit can't push a car onto the wrong stretch
-  const neighbours = Math.ceil(HALF_WIDTH * 5 / SPACING), clearance = (2 * HALF_WIDTH + 40) ** 2;
+  const neighbours = Math.ceil(HALF_WIDTH * 5 / SPACING), clearance = (2 * HALF_WIDTH + 40) * (2 * HALF_WIDTH + 40);
   for (let i = 0; i < n; i++)
     for (let j = i + neighbours; j < Math.min(n, n - neighbours + i + 1); j++) {
       const dx = pts[i][0] - pts[j][0], dy = pts[i][1] - pts[j][1];
@@ -151,8 +151,8 @@ class Track {
     this.heading = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const [ax, ay] = this.points[i], [bx, by] = this.points[(i + 1) % n];
-      this.arc[i + 1] = this.arc[i] + Math.hypot(bx - ax, by - ay);
-      this.heading[i] = Math.atan2(by - ay, bx - ax);
+      this.arc[i + 1] = this.arc[i] + dhypot(bx - ax, by - ay);
+      this.heading[i] = datan2(by - ay, bx - ax);
     }
     this.length = this.arc[n];
     this.spacing = this.length / n;
@@ -168,7 +168,7 @@ class Track {
       const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
       poly = poly.map(([x, y]) => [m + (x - x0) / (x1 - x0) * (WORLD_W - 2 * m), m + (y - y0) / (y1 - y0) * (WORLD_H - 2 * m)]);
       poly = poly.flatMap((p, i) => {
-        const q = poly[(i + 1) % poly.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        const q = poly[(i + 1) % poly.length], len = dhypot(q[0] - p[0], q[1] - p[1]);
         if (len < 380 || rng() < 0.15) return [p];
         let nx = (p[1] - q[1]) / len, ny = (q[0] - p[0]) / len;
         if (nx * (WORLD_W / 2 - p[0]) + ny * (WORLD_H / 2 - p[1]) < 0) nx = -nx, ny = -ny;
@@ -186,8 +186,8 @@ class Track {
       if (!trackProblem(pts)) return new Track(pts);
     }
     return new Track(Array.from({ length: 64 }, (_, i) => [
-      WORLD_W / 2 + Math.cos(i / 64 * Math.PI * 2) * (WORLD_W / 2 - m),
-      WORLD_H / 2 + Math.sin(i / 64 * Math.PI * 2) * (WORLD_H / 2 - m),
+      WORLD_W / 2 + dcos(i / 64 * Math.PI * 2) * (WORLD_W / 2 - m),
+      WORLD_H / 2 + dsin(i / 64 * Math.PI * 2) * (WORLD_H / 2 - m),
     ]));
   }
 
@@ -220,7 +220,7 @@ class Track {
         for (let c = c0; c <= c1; c++) {
           const px = c * CELL, py = r * CELL;
           const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
-          const d = Math.hypot(px - ax - dx * t, py - ay - dy * t), idx = r * cols + c;
+          const d = dhypot(px - ax - dx * t, py - ay - dy * t), idx = r * cols + c;
           if (d < nearest[idx]) {
             nearest[idx] = d;
             this.arcAt[idx] = this.arc[i] + segLen * t;
@@ -253,7 +253,7 @@ class Track {
     const n = this.points.length, arc = this.length - (24 + (slot >> 1) * 32 + (slot & 1) * 16);
     const i = Math.floor(arc / this.length * n) % n, [x, y] = this.points[i], angle = this.heading[i];
     const lateral = slot & 1 ? 15 : -15;
-    return { x: x - Math.sin(angle) * lateral, y: y + Math.cos(angle) * lateral, angle };
+    return { x: x - dsin(angle) * lateral, y: y + dcos(angle) * lateral, angle };
   }
 }
 // the generated tracks have no separate walls, surfaces or banking: the edge of the road is the wall
@@ -317,8 +317,8 @@ class OvalTrack {
     this.heading = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % n];
-      this.arc[i + 1] = this.arc[i] + Math.hypot(bx - ax, by - ay);
-      this.heading[i] = Math.atan2(by - ay, bx - ax);
+      this.arc[i + 1] = this.arc[i] + dhypot(bx - ax, by - ay);
+      this.heading[i] = datan2(by - ay, bx - ax);
     }
     this.length = this.arc[n];
     this.spacing = this.length / n;
@@ -333,8 +333,8 @@ class OvalTrack {
     const pts = this.points, n = pts.length, m = UNITS_PER_M, reach = Math.max(2, Math.round(60 * m / this.spacing));
     const raw = pts.map((_, i) => {
       const a = pts[(i - reach + n) % n], p = pts[i], b = pts[(i + reach) % n];
-      const d = wrapAngle(Math.atan2(b[1] - p[1], b[0] - p[0]) - Math.atan2(p[1] - a[1], p[0] - a[0]));
-      return Math.abs(d) / (Math.hypot(p[0] - a[0], p[1] - a[1]) + Math.hypot(b[0] - p[0], b[1] - p[1])) * 2;
+      const d = wrapAngle(datan2(b[1] - p[1], b[0] - p[0]) - datan2(p[1] - a[1], p[0] - a[0]));
+      return Math.abs(d) / (dhypot(p[0] - a[0], p[1] - a[1]) + dhypot(b[0] - p[0], b[1] - p[1])) * 2;
     });
     // curvature averaged over 60 m so mapping wiggles don't make corners
     const span = Math.max(1, Math.round(30 * m / this.spacing)), kappa = raw.map((_, i) => {
@@ -510,7 +510,7 @@ class OvalTrack {
   pointAt(arc, lateral) {
     const n = this.points.length, f = ((arc % this.length) + this.length) % this.length / this.spacing, i = Math.floor(f) % n, t = f - Math.floor(f);
     const [ax, ay] = this.points[i], [bx, by] = this.points[(i + 1) % n], h = this.heading[i];
-    return [ax + (bx - ax) * t - Math.sin(h) * lateral, ay + (by - ay) * t + Math.cos(h) * lateral];
+    return [ax + (bx - ax) * t - dsin(h) * lateral, ay + (by - ay) * t + dcos(h) * lateral];
   }
 
   // NASCAR double-file rolling start: two lanes behind the line, leader on the inside

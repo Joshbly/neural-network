@@ -65,7 +65,11 @@ const next = { ...st, population, hall, yardstick, config: RECIPE, upgradedFrom:
 fs.writeFileSync(path.join(out, 'state.json'), JSON.stringify(next));
 fs.writeFileSync(path.join(out, 'generations', `gen-${String(last).padStart(4, '0')}.json`), JSON.stringify({ generation: last, population }));
 fs.writeFileSync(path.join(out, 'summary.json'), fs.readFileSync(path.join(src, 'summary.json')));
-fs.writeFileSync(path.join(out, 'meta.json'), JSON.stringify({ name: args.name || `${meta.name} · upgraded`, created: new Date().toISOString(), from: `${meta.name}, generation ${last}, upgraded recipe` }));
+// the copy races the same tracks in the same cars (a NASCAR save stays NASCAR) and keeps its rating ladder
+fs.writeFileSync(path.join(out, 'meta.json'), JSON.stringify({ name: args.name || `${meta.name} · upgraded`, created: new Date().toISOString(), from: `${meta.name}, generation ${last}, upgraded recipe`,
+  ...meta.tracks && { tracks: meta.tracks }, ...meta.cars && { cars: meta.cars } }));
+for (const file of ['ladder.json', 'rating.json'])
+  if (fs.existsSync(path.join(src, file))) fs.copyFileSync(path.join(src, file), path.join(out, file));
 
 console.log(`new save ${free}: ${population.length} brains`);
 for (const d of Object.keys(SEATS)) console.log(`  ${d}: ${population.filter(a => a.species === d).map(a => `${a.name} (${a.label})`).join(', ')}`);

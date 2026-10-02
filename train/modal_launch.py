@@ -31,7 +31,7 @@ def start(slot: str, hours: float, helpers: int):
     except (FileNotFoundError, modal.exception.NotFoundError, modal.exception.InvalidError):
         pass  # nothing there yet
     with volume.batch_upload(force=True) as batch:
-        for name in ("meta.json", "state.json", "summary.json"):
+        for name in ("meta.json", "state.json", "summary.json", "ladder.json", "rating.json"):
             if (local / name).exists():
                 batch.put_file(local / name, f"/slots/{slot}/{name}")
     call = modal.Function.from_name(APP, "train").spawn(slot, time.time() + hours * 3600, helpers)

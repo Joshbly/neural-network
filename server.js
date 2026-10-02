@@ -84,6 +84,8 @@ async function syncCloud() {
   const now = readJson(path.join(slotDir(slot), 'summary.json'))?.generation;
   if (now != null && now !== before) {
     await pull(slot, 'state.json');
+    await pull(slot, 'rating.json');
+    await pull(slot, 'ladder.json');
     fs.mkdirSync(path.join(slotDir(slot), 'generations'), { recursive: true });
     await pull(slot, `generations/gen-${String(now).padStart(4, '0')}.json`);
   }
@@ -187,6 +189,9 @@ async function slotAction(params) {
       } else {
         fs.copyFileSync(path.join(slotDir(source), 'state.json'), path.join(dir, 'state.json'));
         fs.copyFileSync(path.join(slotDir(source), 'summary.json'), path.join(dir, 'summary.json'));
+        // same mode, same tracks: the copy keeps the rating ladder, so its ratings carry on on the same scale
+        for (const file of ['ladder.json', 'rating.json'])
+          if (fs.existsSync(path.join(slotDir(source), file))) fs.copyFileSync(path.join(slotDir(source), file), path.join(dir, file));
         const snapshot = `gen-${String(state.generation).padStart(4, '0')}.json`;
         if (fs.existsSync(path.join(slotDir(source), 'generations', snapshot))) fs.copyFileSync(path.join(slotDir(source), 'generations', snapshot), path.join(dir, 'generations', snapshot));
       }

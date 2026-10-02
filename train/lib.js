@@ -2,29 +2,16 @@
 const fs = require('fs');
 const path = require('path');
 
-const files = ['nn-wasm.js', 'nn.js', 'nascar-tracks.js', 'track.js', 'car.js', 'heat.js', 'racecontrol.js', 'nascar.js'];
+const files = ['dmath.js', 'nn-wasm.js', 'nn.js', 'nascar-tracks.js', 'track.js', 'car.js', 'heat.js', 'racecontrol.js', 'nascar.js', 'replay.js'];
 const source = files.map(f => fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8')).join('\n');
 const E = new Function(`${source}
 return { Brain, Track, OvalTrack, NASCAR_TRACKS, SURFACE, MPH_PER_SPEED, Heat, Car, RaceControl, IN, mulberry32, geneCount, INPUT_COUNT,
   HALF_WIDTH, REAR_CAR_RAYS, clamp, G, NORMAL, NASCAR_670, NASCAR_PLATE, specFor, stockSpec, steerLock,
-  SUPERSPEEDWAYS, YARDSTICK_OVALS, practiceOvals, seasonOvals, lapsFor, pickFrom, OTHER_OVALS };`)();
+  SUPERSPEEDWAYS, YARDSTICK_OVALS, practiceOvals, seasonOvals, lapsFor, pickFrom, OTHER_OVALS, RC,
+  noiseVector, perturbGenes, esSeed, quantizeGenes, scenarioOptions };`)();
 
-// deterministic Gaussian noise from a seed, so perturbations never need to be shipped between threads
-function noise(seed, n) {
-  const rng = E.mulberry32(seed), out = new Float32Array(n);
-  for (let i = 0; i < n; i += 2) {
-    const r = Math.sqrt(-2 * Math.log(1 - rng())), a = 2 * Math.PI * rng();
-    out[i] = r * Math.cos(a);
-    if (i + 1 < n) out[i + 1] = r * Math.sin(a);
-  }
-  return out;
-}
-
-function perturb(theta, seed, scale) {
-  const eps = noise(seed, theta.length), genes = new Float32Array(theta.length);
-  for (let i = 0; i < theta.length; i++) genes[i] = theta[i] + scale * eps[i];
-  return genes;
-}
+// deterministic Gaussian noise from a seed (js/replay.js, shared with the app so it can rebuild any copy)
+const noise = E.noiseVector, perturb = E.perturbGenes;
 
 // Xavier-style hidden layers: weights ~ N(0, 1/fan_in), zero biases. The output layer starts near zero
 // with a positive throttle bias, so every fresh policy is "drive straight, steady throttle" whatever
@@ -77,25 +64,26 @@ function oval(id) {
 // a scenario names a generated track by seed or a real oval by id, and which cars race: normal saves leave
 // both out, so their races are exactly what they always were
 const trackOf = sc => sc.trackId ? oval(sc.trackId) : track(sc.trackSeed);
-const heatOf = (sc, t, brains) => new E.Heat(t, brains, sc.laps, sc.cars || sc.trackId
-  ? { cars: sc.cars, stages: sc.stages, practice: !sc.stages, fastCaution: true } : {});
+const heatOf = (sc, t, brains) => new E.Heat(t, brains, sc.laps, E.scenarioOptions(sc));
 
 // Share of downforce lost by the flag. Training races are a few laps but the real ones run ten, so the
-// car you bring home is scored as if you still had to race it.
+// car you bring home is scored as if you still had to race it, at half weight: it already cost places here.
 const worn = car => car.condition.front + car.condition.rear;
-// Share of the race spent glued to the bumper of the car ahead (within two lengths, weighted by closeness).
-// Racing from further back in the slipstream is free; sitting on a bumper instead of passing is not:
-// a whole race of it costs about what dropping half a field would.
-const tail = car => car.tailSteps / Math.max(1, car.steps), TAIL_PENALTY = 0.5;
+// Share of the race spent glued to the bumper of the car ahead (within two lengths, weighted by closeness),
+// for the stats only: pushing someone just helps them win, and the physics shows that without a cost here.
+const tail = car => car.tailSteps / Math.max(1, car.steps);
+// Share of the race spent leaning door to door on another car, for the stats only: staying glued to someone's
+// flank is its own punishment on track (two-wide drag, side drafts, a loose car), not a cost added here.
+const rub = car => car.sideSteps / Math.max(1, car.steps);
 // Every wall contact costs reward on top of the speed and downforce it costs on track: about a place in a
 // 12-car practice race for each one, so braking for the corner always beats bouncing off the barrier.
-const WALL_PENALTY = { race: 0.12, solo: 0.04 };
+const WALL_PENALTY = { race: 0.04, solo: 0.04 };
 // Winning is the marker of success. P1 is worth more than twice P2 and the rest slide down to nothing, so a
 // win with a scrape beats a clean second and sitting in P2 is never good enough; moving up still counts a
 // little. Practice and the tournament use the same table.
 const racePoints = (place, n) => place === 0 ? 1 : 0.45 * (n - 1 - place) / Math.max(1, n - 2);
-// Leading is rewarded for as long as you hold it: take the lead and keep everyone else from winning.
-const led = car => car.ledSteps / Math.max(1, car.steps), LEAD_BONUS = 0.3;
+// Leading only breaks ties: a whole race of it is about a place, so leading and losing is still losing.
+const led = car => car.ledSteps / Math.max(1, car.steps), LEAD_BONUS = 0.05;
 // On the ovals, breaking the rules costs reward on top of what it costs on track: a black flag (passing below
 // the yellow line, jumping a restart) about a place and a half, bringing out a caution about one, and every
 // moment spent below the line at the plate tracks a little, so the bottom of the track stays a no-go zone.
@@ -113,13 +101,13 @@ function timeTrial(sc) {
   // a DNF (stalled or wrong way) must always score below crashing forward, or "never move" becomes
   // a local optimum that wall penalties alone would make attractive
   return {
-    score: (car.finished ? 1 + (1 - car.steps / heat.maxSteps) : share) - WALL_PENALTY.solo * car.wallHits - 0.001 * car.impact - 0.5 * worn(car) - (car.retired ? 0.5 : 0) - ruleCost(car),
+    score: (car.finished ? 1 + (1 - car.steps / heat.maxSteps) : share) - WALL_PENALTY.solo * car.wallHits - 0.001 * car.impact - 0.25 * worn(car) - (car.retired ? 0.5 : 0) - ruleCost(car),
     finished: car.finished, lap: car.laps.length ? Math.min(...car.laps) / 60 : null, walls: car.wallHits, aero: worn(car),
   };
 }
 
-// A race: the candidate starts from `slot` among opponents. Winning and leading are what count; distance
-// and finishing time only break ties; walls, ramming, damage and riding bumpers cost you.
+// A race: the candidate starts from `slot` among opponents. Winning is what counts; leading, distance
+// and finishing time only break ties; walls, ramming and damage cost you.
 function race(sc) {
   const { layers, genes, opponents, slot, laps, blind } = sc, t = trackOf(sc), brains = opponents.map(o => new E.Brain(o.layers, o.genes));
   brains.splice(slot, 0, new E.Brain(layers, genes));
@@ -138,9 +126,9 @@ function race(sc) {
   const share = E.clamp(covered(me) / (laps * t.length), 0, 1);
   return {
     score: racePoints(place, n) + LEAD_BONUS * led(me) + 0.15 * share + (me.finished ? 0.05 * (1 - me.steps / heat.maxSteps) : 0)
-      - WALL_PENALTY.race * me.wallHits - 0.1 * me.rammed - worn(me) - TAIL_PENALTY * tail(me) - (me.retired ? 0.5 : 0) - ruleCost(me),
+      - WALL_PENALTY.race * me.wallHits - 0.1 * me.rammed - 0.5 * worn(me) - (me.retired ? 0.5 : 0) - ruleCost(me),
     place, won: place === 0, finished: me.finished, walls: me.wallHits, passes: me.overtakes, passedBy: me.passedBy,
-    rammed: me.rammed, aero: worn(me), tail: tail(me), led: led(me), lap: me.laps.length ? Math.min(...me.laps) / 60 : null,
+    rammed: me.rammed, aero: worn(me), tail: tail(me), rub: rub(me), led: led(me), lap: me.laps.length ? Math.min(...me.laps) / 60 : null,
   };
 }
 
@@ -151,7 +139,7 @@ function fieldRace(sc) {
   const standings = heat.standings();
   return heat.cars.map(car => ({
     place: standings.indexOf(car), finished: car.finished, retired: car.retired, walls: car.wallHits,
-    passes: car.overtakes, passedBy: car.passedBy, rammed: car.rammed, aero: worn(car), tail: tail(car), led: led(car), draft: car.draftSteps / Math.max(1, car.steps),
+    passes: car.overtakes, passedBy: car.passedBy, rammed: car.rammed, aero: worn(car), tail: tail(car), rub: rub(car), led: led(car), draft: car.draftSteps / Math.max(1, car.steps),
     lap: car.laps.length ? Math.min(...car.laps) / 60 : null,
     ...heat.control && { stagePoints: car.stagePoints, cautionsCaused: car.cautionsCaused, penalties: car.penalties, belowLine: car.belowLine / Math.max(1, car.steps), parked: car.parked },
   }));

@@ -221,19 +221,9 @@ function drawStockCar(ctx, car, livery, { glow = false, alpha = 1, pace = false 
     ctx.stroke();
   }
   const braking = car.running && car.throttle < -0.1;
+  // the outline is the body the physics collides (car.js boxGeometry): nothing drawn sticks out past it
   const body = new Path2D();
-  body.moveTo(L - 1.6, -W);
-  body.quadraticCurveTo(L, -W, L, -W + 1.6);
-  body.lineTo(L, W - 1.6);
-  body.quadraticCurveTo(L, W, L - 1.6, W);
-  body.lineTo(-L + 0.6, W);
-  body.lineTo(-L, W - 0.6);
-  body.lineTo(-L, -W + 0.6);
-  body.lineTo(-L + 0.6, -W);
-  body.closePath();
-  // tyres peeking out
-  ctx.fillStyle = '#0b0c0e';
-  for (const [x, y] of [[L - 4.2, -W - 0.3], [L - 4.2, W - 1.1], [-L + 3, -W - 0.3], [-L + 3, W - 1.1]]) ctx.fillRect(x - 1.6, y, 3.2, 1.4);
+  body.roundRect(-L, -W, 2 * L, 2 * W, car.spec.box?.r ?? 1);
   if (glow) {
     ctx.shadowColor = livery.primary;
     ctx.shadowBlur = 16 * view.dpr;
@@ -255,6 +245,9 @@ function drawStockCar(ctx, car, livery, { glow = false, alpha = 1, pace = false 
   }
   ctx.fillStyle = livery.accent;
   ctx.fillRect(L - 0.5, -W, 0.5, 2 * W);
+  // tyre tops under the fender lips, inside the outline
+  ctx.fillStyle = 'rgba(8, 9, 11, 0.85)';
+  for (const x of [L - 4.2, -L + 3]) for (const y of [-W, W - 0.7]) ctx.fillRect(x - 1.6, y, 3.2, 0.7);
   ctx.restore();
   // glass: windshield, side windows, rear window; then the roof
   ctx.fillStyle = 'rgba(12, 16, 22, 0.92)';
@@ -284,16 +277,17 @@ function drawStockCar(ctx, car, livery, { glow = false, alpha = 1, pace = false 
   // decklid spoiler
   ctx.fillStyle = '#0d0f12';
   ctx.fillRect(-L, -W + 0.3, 0.7, 2 * W - 0.6);
-  // hood sponsor, legible up close
+  // hood sponsor, legible up close, sized to fit across the hood
   if (!pace && view.zoom > 2.2) {
+    const hood = livery.hood ??= hoodLayout(ctx, livery.sponsor.toUpperCase(), 2 * W - 1.4);
     ctx.save();
-    ctx.translate(6.4, 0);
+    ctx.translate(6.6, 0);
     ctx.rotate(Math.PI / 2);
     ctx.fillStyle = livery.accent;
-    ctx.font = `800 1.25px ui-sans-serif, system-ui`;
+    ctx.font = `800 ${hood.size}px ui-sans-serif, system-ui`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(livery.sponsor.toUpperCase(), 0, 0);
+    hood.lines.forEach((line, i) => ctx.fillText(line, 0, (i - (hood.lines.length - 1) / 2) * hood.size * 1.1));
     ctx.restore();
   }
   if (pace) {
@@ -304,10 +298,28 @@ function drawStockCar(ctx, car, livery, { glow = false, alpha = 1, pace = false 
   }
   if (braking) {
     ctx.fillStyle = '#ff2a2a';
-    ctx.fillRect(-L - 0.2, -W + 0.6, 0.5, 1.4);
-    ctx.fillRect(-L - 0.2, W - 2, 0.5, 1.4);
+    ctx.fillRect(-L, -W + 1, 0.5, 1.4);
+    ctx.fillRect(-L, W - 2.4, 0.5, 1.4);
   }
   ctx.restore();
+}
+
+// a sponsor name that fits a hood `room` units wide: one line if it can be read that way, else the two
+// halves either side of the space nearest the middle (measured at 10px: tiny canvas fonts measure badly)
+function hoodLayout(ctx, name, room) {
+  ctx.save();
+  ctx.font = '800 10px ui-sans-serif, system-ui';
+  const width = text => ctx.measureText(text).width / 10;
+  const fit = lines => Math.min(1.5, room / Math.max(...lines.map(width)));
+  let lines = [name];
+  const spaces = [...name.matchAll(/ /g)].map(m => m.index);
+  if (fit(lines) < 1.1 && spaces.length) {
+    const cut = spaces.reduce((a, b) => Math.abs(b - name.length / 2) < Math.abs(a - name.length / 2) ? b : a);
+    lines = [name.slice(0, cut), name.slice(cut + 1)];
+  }
+  const size = fit(lines);
+  ctx.restore();
+  return { lines, size };
 }
 
 const PACE_LIVERY = { primary: '#f2f2f2', secondary: '#ffcc00', accent: '#111', pattern: 'stripes', sponsor: 'PACE CAR' };

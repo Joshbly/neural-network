@@ -28,6 +28,9 @@ const RC = {
   cautionLaps: 1, maxCautionLaps: 3,
   minCautionLaps: 5,   // shorter races stay green
   overtimeAttempts: 2,
+  // a save's races stay green until its brains are this many generations old: before that they wreck so often
+  // that cautions would turn every race into laps behind the pace car
+  cautionsFrom: 100,
 };
 
 class RaceControl {
@@ -35,7 +38,7 @@ class RaceControl {
     this.heat = heat;
     this.track = heat.track;
     const laps = heat.laps;
-    this.cautionsOn = !opts.practice && laps >= RC.minCautionLaps;
+    this.cautionsOn = opts.cautions !== false && !opts.practice && laps >= RC.minCautionLaps;
     // training skips the pace laps: the field closes up two-wide behind the leader and restarts at once (same
     // order, lucky dog and overtime rules), because a caution lap behind the pace car teaches nothing and costs minutes
     this.fast = !!opts.fastCaution;
@@ -57,8 +60,8 @@ class RaceControl {
     this.redLeft = 0;
     // rolling start: everyone already rolling at pace speed in their double-file slot
     for (const car of heat.cars) {
-      car.vx = Math.cos(car.angle) * this.track.paceSpeed;
-      car.vy = Math.sin(car.angle) * this.track.paceSpeed;
+      car.vx = dcos(car.angle) * this.track.paceSpeed;
+      car.vy = dsin(car.angle) * this.track.paceSpeed;
       car.paced = true;
       car.auto = new Float32Array(2);
       car.stopped = 0;
@@ -127,7 +130,7 @@ class RaceControl {
     // a car that can't get going under its own power needs a tow, and a tow means it's out
     if (step % RC.check === 0 && this.phase !== 'start')
       for (const car of racing) {
-        car.stopped = Math.hypot(car.vx, car.vy) < track.refSpeed * 0.08 && !car.penalty ? car.stopped + RC.check : 0;
+        car.stopped = dhypot(car.vx, car.vy) < track.refSpeed * 0.08 && !car.penalty ? car.stopped + RC.check : 0;
         if (car.stopped >= RC.towAfter && car.running) {
           car.parked = car.counted = true;
           car.running = false;
@@ -156,14 +159,14 @@ class RaceControl {
         const stage = this.stages.shift();
         racing.slice(0, 10).forEach((car, i) => car.stagePoints += 10 - i);
         this.say(step, 'stage', `Stage ${this.stages.length ? 1 : 2} ends at lap ${stage}: green-checkered`);
-        this.caution(order, step, null, 'Stage break');
+        if (this.cautionsOn) this.caution(order, step, null, 'Stage break');
       }
       // hazards: a spin, a stopped car (alone on track, or in a short race, a spin only costs its own time)
       if (this.cautionsOn && step % RC.check === 0 && racing.length > 1) {
         for (const car of racing) {
           if (car.paced) continue;
-          const speed = Math.hypot(car.vx, car.vy), c = Math.cos(car.angle), s = Math.sin(car.angle);
-          const sideways = Math.abs(Math.atan2(-car.vx * s + car.vy * c, car.vx * c + car.vy * s)) > 1.1;
+          const speed = dhypot(car.vx, car.vy), c = dcos(car.angle), s = dsin(car.angle);
+          const sideways = Math.abs(datan2(-car.vx * s + car.vy * c, car.vx * c + car.vy * s)) > 1.1;
           const lateral = track.lateralAt(car.x, car.y), onTrack = lateral > -hw - track.apron - 4;
           if ((sideways && speed < track.refSpeed * 0.45 && onTrack && speed > 0.2) || car.stopped >= RC.stoppedFor) {
             const where = this.where(car);
@@ -191,7 +194,7 @@ class RaceControl {
         else {
           // beating the leader to the line, or getting by anyone but the car alongside; passing a car that's
           // spun or slowing is fine
-          const pace = Math.hypot(leader.vx, leader.vy), healthy = car => Math.hypot(car.vx, car.vy) > pace * 0.8;
+          const pace = dhypot(leader.vx, leader.vy), healthy = car => dhypot(car.vx, car.vy) > pace * 0.8;
           const dist = car => car.progress + car.bonus;
           racing.forEach((car, i) => {
             const was = this.restartOrder.get(car);
@@ -309,7 +312,7 @@ class RaceControl {
       while (car.progress >= (car.laps.length + 1) * L) car.laps.push(Infinity), car.yellowLaps++;
       car.lapVoid = true;
       const [x, y] = track.pointAt(car.lastArc, lane), angle = track.headingAt(car.lastArc);
-      Object.assign(car, { x, y, angle, spin: 0, steer: 0, stopped: 0, c: Math.cos(angle), s: Math.sin(angle) });
+      Object.assign(car, { x, y, angle, spin: 0, steer: 0, stopped: 0, c: dcos(angle), s: dsin(angle) });
       car.vx = car.c * track.paceSpeed;
       car.vy = car.s * track.paceSpeed;
     });
@@ -393,7 +396,7 @@ class RaceControl {
     // stop-and-go: down on the apron at pit-road speed for the length of a pass-through
     for (const car of live) {
       if (!car.penalty) continue;
-      const speed = Math.hypot(car.vx, car.vy);
+      const speed = dhypot(car.vx, car.vy);
       car.penalty -= speed;
       this.autodrive(car, -track.halfWidth - track.apron * 0.5, pace, true);
       if (car.penalty <= 0) {
@@ -407,10 +410,10 @@ class RaceControl {
   // instructions (lift and brake progressively, smooth steering), not the limit-of-grip driving of a pole lap;
   // slamming on the brakes mid-corner when the yellow flies would spin a rear-drive car
   autodrive(car, lane, target, gentle = false) {
-    const track = this.track, speed = car.vx * Math.cos(car.angle) + car.vy * Math.sin(car.angle);
+    const track = this.track, speed = car.vx * dcos(car.angle) + car.vy * dsin(car.angle);
     const [tx, ty] = track.pointAt(car.lastArc + Math.max(60, speed * (gentle ? 30 : 18)), lane);
-    const err = Math.atan2(Math.sin(Math.atan2(ty - car.y, tx - car.x) - car.angle), Math.cos(Math.atan2(ty - car.y, tx - car.x) - car.angle));
-    const sideways = car.vy * Math.cos(car.angle) - car.vx * Math.sin(car.angle);
+    const err = datan2(dsin(datan2(ty - car.y, tx - car.x) - car.angle), dcos(datan2(ty - car.y, tx - car.x) - car.angle));
+    const sideways = car.vy * dcos(car.angle) - car.vx * dsin(car.angle);
     car.auto[0] = Math.max(-1, Math.min(1, err / steerLock(car.spec, speed, sideways) * (gentle ? 1.2 : 1.6)));
     car.auto[1] = Math.max(gentle ? -0.3 : -1, Math.min(1, (target - speed) / (0.08 * target + 0.05)));
   }

@@ -5,8 +5,11 @@
 //   1. training: each pro gets the same number of evolution-strategies steps, racing rivals drawn from
 //      the whole population (every design), so they learn racecraft from each other;
 //   2. tournament: all twenty race 10-lap, 20-car races on tracks none of them train on;
-//   3. selection: within each species, a pro that keeps finishing well behind its best sibling is
-//      replaced by a mutated copy of that sibling (new learning rate and noise scale too).
+//   3. selection: within each species, a pro that keeps finishing well behind a strong sibling is
+//      replaced by a mutated copy of that sibling (new learning rate and noise scale too); no family line
+//      may hold more than half a species' seats, so every design keeps exploring more than one way to drive;
+//   4. every few generations, the rating ladder (train/ladder.js): each design's best races frozen past
+//      champions on fixed tracks, giving a rating that means the same thing across the whole run.
 // Species never mix (the weights don't fit across designs) and every species keeps four seats, so the
 // standings answer "which brain design is best" with equal training for each.
 //
@@ -18,11 +21,12 @@ const fs = require('fs');
 const path = require('path');
 const { Worker } = require('worker_threads');
 const { E, noise, widen, initParams, racePoints } = require('./lib');
+const { fitRatings, pickOpponents, pickParent } = require('./ladder');
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc, []));
 const opt = {
   pairs: +(args.pairs || 48), rounds: +(args.rounds || 5), workers: +(args.workers || Math.max(1, os.cpus().length - 1)),
-  field: 12, laps: 3, races: 2, decay: 0.005,
+  field: 12, laps: 4, races: 2, decay: 0.005,
 };
 const ROOT = path.join(__dirname, '..');
 const DIR = path.resolve(args.dir || path.join(ROOT, 'models', 'evolution')), GENS = path.join(DIR, 'generations');
@@ -30,23 +34,28 @@ const FOUNDERS = path.join(ROOT, 'models', 'originals', 'tab-field.json');
 const range = (from, n) => Array.from({ length: n }, (_, i) => from + i);
 // Practice tracks never repeat: every training round of every generation gets new ones, shared by all
 // twenty pros that round. The tournament gets 8 new tracks each generation, raced 3 times each with
-// different grids so neither grid luck nor one odd layout decides who survives. Only the yardstick
-// against the originals stays on the same 8 tracks, so every generation sits the same test.
+// different grids so neither grid luck nor one odd layout decides who survives. Only the rating ladder
+// stays on the same tracks, so every generation sits the same test.
 const practiceTrack = (gen, round, k) => 10_000_000 + (gen * 16 + round) * 8 + k;
 const tourneyTrack = (gen, k) => 5_000_000 + gen * 8 + k;
-const TOURNEY_TRACKS = 8, BENCH_TRACKS = range(931, 8);
-const TOURNEY_RACES = 24, BENCH_RACES = 8, RACE_LAPS = 10, DUEL_LAPS = 2;
+const TOURNEY_TRACKS = 8, TOURNEY_RACES = 24, RACE_LAPS = 10, DUEL_LAPS = 2;
+// The ladder, every RATE_EVERY generations: 96 ten-car races, each design's best five against five frozen
+// past champions, on 12 fixed tracks (every kind of oval in NASCAR mode). Fixed for good: changing any of
+// this would make new ratings incomparable with old ones.
+const RATE_EVERY = 5, RATE_RACES = 96, RATE_FIELD = 10, POOL_ACTIVE = 20;
+const RATE_TRACKS = range(7_000_001, 12), RATE_LAPS = 5, RATE_M = 10000;
+const RATE_OVALS = ['daytona', 'talladega', 'atlanta', 'charlotte', 'michigan', 'kansas', 'darlington', 'dover', 'phoenix', 'richmond', 'bristol', 'martinsville'];
 // A save races normal tracks or the real NASCAR ovals, in normal cars or stock cars (meta.json; any mix
-// trains). On the ovals a race is a distance, not a lap count: practice about 5.5 km (two laps of Daytona,
-// six of Martinsville), duels 3 km, the season's races 24 km, so a short track isn't over in seconds.
+// trains). On the ovals a race is a distance, not a lap count: practice about 7.3 km (two laps of Daytona,
+// nine of Martinsville), duels 3 km, the season's races 24 km, so a short track isn't over in seconds.
 const META = (() => { try { return JSON.parse(fs.readFileSync(path.join(DIR, 'meta.json'), 'utf8')); } catch { return {}; } })();
 const MODE = { tracks: META.tracks ?? 'normal', cars: META.cars ?? (META.tracks === 'nascar' ? 'stock' : 'normal') };
 const NASCAR = MODE.tracks === 'nascar', CARS = MODE.cars === 'normal' && !NASCAR ? {} : { cars: MODE.cars };
-const PRACTICE_M = 5500, DUEL_M = 3000, SEASON_M = 24000, NASCAR_FIELD = 40;
+const PRACTICE_M = 7300, DUEL_M = 3000, SEASON_M = 24000, NASCAR_FIELD = 40;
 // where a race is: a generated track's seed, or a real oval and a lap count for the distance
 const onTrack = (seedOrId, laps, metres) => NASCAR ? { trackId: seedOrId, laps: E.lapsFor(seedOrId, metres), ...CARS } : { trackSeed: seedOrId, laps, ...CARS };
-// avg finish is a share of the field (0 = always first); 24 races put roughly ±0.06 of noise on it
-const MARGIN = 0.1, SETTLE = 2;
+// race points per tournament race; judged over several tournaments, so a margin of 0.1 is well clear of luck
+const MARGIN = 0.1;
 const SPECIES = { '16-10': 'A', '32-24-16': 'B', '64-64': 'C', '64-64-64': 'D', '128-128': 'E' };
 const speciesOf = layers => SPECIES[layers.slice(1, -1).join('-')] || layers.slice(1, -1).join('-');
 fs.mkdirSync(GENS, { recursive: true });
@@ -180,25 +189,44 @@ function connectRemote(address, token) {
 // live.json: everyone's weights right now, mid-generation, so the app can show the practice as it happens
 // progress.json: phase, round, and exactly which practice races are being run this round
 // summary.json: a few numbers for the save-slot list
+// ladder.json: every rating race ever run and the frozen players in it; rating.json: the fitted ratings
 const STATE = path.join(DIR, 'state.json'), PROGRESS = path.join(DIR, 'progress.json');
 const LIVE = path.join(DIR, 'live.json'), SUMMARY = path.join(DIR, 'summary.json');
+const LADDER = path.join(DIR, 'ladder.json'), RATING = path.join(DIR, 'rating.json');
+// tournament.json / rating-races.json: the latest tournament's and rating round's races, set up exactly as
+// they ran with everyone's weights, plus the official finishing orders (the app replays them)
+const TOURNAMENT = path.join(DIR, 'tournament.json'), RATING_RACES = path.join(DIR, 'rating-races.json');
 const founders = JSON.parse(fs.readFileSync(FOUNDERS, 'utf8')).drivers;
-// the fixed yardstick every generation is measured against: the original P1-P10, two of each design
-const originals = founders.slice(0, 10).map(d => ({ layers: d.layers, genes: Float32Array.from(d.genes) }));
 
-// A save can carry its own recipe (train/upgrade.js writes one); these defaults are the original recipe.
+// A save can carry its own recipe (train/upgrade.js writes one); anything it leaves out comes from here.
 //   window: tournaments averaged before judging a brain; settle: generations a new copy is safe for;
-//   pickFromTop: copy a random brain from the top half instead of always the best;
-//   hall*: past champions kept as practice rivals (hallRivals of the 11 in every practice race)
-const RECIPE = { pairs: 48, margin: MARGIN, settle: SETTLE, window: 1, pickFromTop: false, hallEvery: 0, hallSize: 0, hallRivals: 0 };
+//   pickFromTop: copy any of the strong half instead of always the single best;
+//   hall*: past champions kept as practice rivals (hallRivals of the 11 in every practice race), so the
+//     field never forgets how to beat an older style;
+//   familyCap: no family line holds more than half a species' seats;
+//   mutate: a copy starts this many noise-scales (sigma) away from its parent instead of identical to it
+const RECIPE = { pairs: 48, margin: MARGIN, settle: 3, window: 3, pickFromTop: true, hallEvery: 10, hallSize: 16, hallRivals: 3, familyCap: true, mutate: 1 };
 let cfg = RECIPE;
 
 function load() {
   if (!fs.existsSync(STATE)) return null;
   const st = JSON.parse(fs.readFileSync(STATE, 'utf8'));
   for (const list of [st.population, st.hall, st.yardstick]) for (const a of list || []) a.genes = Float32Array.from(a.genes);
+  // inputs added since a brain was born reach it with zero weights: it drives exactly as before until training
+  // finds a use for them (frozen past champions stay as they were)
+  for (const a of st.population) Object.assign(a, widen(a.layers, a.genes));
   return st;
 }
+
+// players: everyone who has run a rating race, frozen; pool ones keep their weights and can be raced again
+function loadLadder() {
+  if (!fs.existsSync(LADDER)) return { players: [], races: [] };
+  const ladder = JSON.parse(fs.readFileSync(LADDER, 'utf8'));
+  for (const p of ladder.players) if (p.genes) p.genes = Float32Array.from(p.genes);
+  return ladder;
+}
+let ladder = { players: [], races: [] }, ratings = [];
+const poolOf = () => ladder.players.filter(p => p.genes);
 
 const DESIGNS = { A: [16, 10], B: [32, 24, 16], C: [64, 64], D: [64, 64, 64], E: [128, 128] };
 
@@ -233,7 +261,8 @@ function save(st) {
   const population = packed(st), last = st.history.at(-1);
   writeJson(path.join(GENS, `gen-${String(st.generation).padStart(4, '0')}.json`), { generation: st.generation, population });
   writeJson(STATE, { ...st, population, hall: pack(st.hall), yardstick: pack(st.yardstick) });
-  writeJson(SUMMARY, { generation: st.generation, champion: last.champion, vsOriginals: last.vsOriginals, vsPast: last.vsPast, updated: last.at,
+  const rated = st.history.findLast(e => e.rating)?.rating;
+  writeJson(SUMMARY, { generation: st.generation, champion: last.champion, rating: rated?.champion, updated: last.at,
     designs: Object.fromEntries(Object.entries(last.species).map(([d, s]) => [d, round(1 - s.avgPlace, 2)])) });
 }
 
@@ -247,14 +276,14 @@ function centredRanks(values) {
   return out;
 }
 
-// roster layout (shared with the workers): population, the original pros, hall of fame, past-champion yardstick
+// roster layout (shared with the workers): population, hall of fame, the ladder's pool of frozen champions
 const rosterBase = st => {
-  const hall = st.population.length + originals.length;
-  return { originals: st.population.length, hall, yardstick: hall + (st.hall?.length ?? 0) };
+  const hall = st.population.length;
+  return { hall, pool: hall + (st.hall?.length ?? 0) };
 };
 const rosterName = (st, i) => {
   const base = rosterBase(st);
-  return i < base.originals ? st.population[i].name : i >= base.hall && i < base.yardstick ? st.hall[i - base.hall].name : `#${i}`;
+  return i < base.hall ? st.population[i].name : i < base.pool ? st.hall[i - base.hall].name : `#${i}`;
 };
 
 function scenarios(st, ai, rng, gen, r) {
@@ -305,14 +334,17 @@ function step(a, seeds, outs, scenarioCount) {
   }
 }
 
-const roster = st => [...st.population.map(a => ({ layers: a.layers, genes: a.genes.slice() })), ...originals,
-  ...[...(st.hall ?? []), ...(st.yardstick ?? [])].map(a => ({ layers: a.layers, genes: a.genes }))];
+const roster = st => [...st.population.map(a => ({ layers: a.layers, genes: a.genes.slice() })),
+  ...[...(st.hall ?? []), ...poolOf()].map(a => ({ layers: a.layers, genes: a.genes }))];
 
 async function train(st, gen) {
-  broadcast({ type: 'roster', drivers: roster(st) });
   st.practiceRuns ??= 0;
   st.practiceHistory ??= [];
   for (let r = 1; r <= opt.rounds; r++) {
+    // everyone races with exactly the weights live.json publishes (5 decimals), rivals as they are this round,
+    // so the app can rebuild any practice race the engine runs, copy for copy (js/replay.js)
+    for (const a of st.population) a.genes = E.quantizeGenes(a.genes);
+    broadcast({ type: 'roster', drivers: roster(st) });
     const rng = E.mulberry32(gen * 1009 + r), plans = st.population.map((_, ai) => scenarios(st, ai, rng, gen, r));
     writeJson(LIVE, { generation: gen, round: r, population: packed(st), hall: pack(st.hall) });
     // the practice board: for each brain, how many of its copies have raced this round and how they scored
@@ -326,7 +358,9 @@ async function train(st, gen) {
       laps: NASCAR ? plans[0].map(sc => sc.laps) : opt.laps, field: opt.field, pairs: opt.pairs, tracks: plans[0].map(where), mode: MODE,
       pros: plans.map((scs, ai) => ({ name: st.population[ai].name, rivals: scs[0].rivals.map(i => rosterName(st, i)),
         slots: scs.filter(sc => sc.kind === 'race' && !sc.duel).map(sc => sc.slot),
-        duels: scs.filter(sc => sc.duel).map(sc => ({ rival: rosterName(st, sc.rivals[0]), slot: sc.slot, track: where(sc), laps: sc.laps })) })),
+        duels: scs.filter(sc => sc.duel).map(sc => ({ rival: rosterName(st, sc.rivals[0]), slot: sc.slot, track: where(sc), laps: sc.laps })),
+        // every copy of this brain races exactly these (rivals by name): the app rebuilds any copy's race from them
+        scenarios: scs.map(({ rivals, ...sc }) => ({ ...sc, ...rivals && { rivals: rivals.map(i => rosterName(st, i)) } })) })),
     };
     const update = () => {
       const runs = done.reduce((a, b) => a + b, 0) * perCopy;
@@ -339,7 +373,7 @@ async function train(st, gen) {
     await Promise.all(st.population.map((a, ai) => {
       broadcast({ type: 'theta', agent: ai, layers: a.layers, theta: a.genes });
       const scs = plans[ai];
-      const seeds = range(0, opt.pairs).map(i => (Math.imul(gen, 2654435761) ^ Math.imul(r * 64 + ai, 40503) ^ Math.imul(i + 1, 97531)) >>> 0);
+      const seeds = range(0, opt.pairs).map(i => E.esSeed(gen, r, ai, i));
       const jobs = seeds.flatMap(seed => [1, -1].map(sign => submit({ kind: 'es', agent: ai, seed, sign, sigma: a.sigma, scenarios: scs }).then(scores => {
         const reward = mean(scores);
         done[ai]++;
@@ -360,18 +394,27 @@ async function train(st, gen) {
 
 // ---- tournament: everyone races everyone, full distance ----
 async function tournament(st, gen) {
+  for (const a of st.population) a.genes = E.quantizeGenes(a.genes);
   writeJson(LIVE, { generation: gen, round: null, population: packed(st), hall: pack(st.hall) });
   // the tournament's tracks: 8 new generated tracks, or on the ovals an 8-race season (two superspeedways)
   const venues = NASCAR ? E.seasonOvals(gen) : range(0, TOURNEY_TRACKS).map(k => tourneyTrack(gen, k));
-  const raceAt = k => ({ ...onTrack(venues[k % venues.length], RACE_LAPS, SEASON_M), ...NASCAR && { stages: true } });
-  report({ generation: gen, phase: 'tournament', practice: null, tournament: { laps: NASCAR ? venues.map((_, k) => raceAt(k).laps) : RACE_LAPS, tracks: venues, mode: MODE } });
+  // full flag rules once the brains are old enough to race clean (RC.cautionsFrom); green racing before that
+  const raceAt = k => ({ ...onTrack(venues[k % venues.length], RACE_LAPS, SEASON_M), ...NASCAR && { stages: true, cautions: gen >= E.RC.cautionsFrom } });
   broadcast({ type: 'roster', drivers: roster(st) });
   // a grid holds 20 cars (40 on the ovals): a bigger population races in random fields, enough races for ~24 each
   const rng = E.mulberry32(gen * 7919 + 17), size = st.population.length, grid = Math.min(size, NASCAR ? NASCAR_FIELD : 20);
   const raceCount = Math.ceil(TOURNEY_RACES * size / grid);
   const races = range(0, raceCount).map(r => ({ kind: 'field', ...raceAt(r), entrants: shuffle(range(0, size), rng).slice(0, grid) }));
+  // every race exactly as it will run (the grid in starting order), so the app can show the real ones
+  const setups = races.map(({ entrants, ...scenario }) => ({ scenario, grid: entrants.map(i => st.population[i].name) }));
+  report({ generation: gen, phase: 'tournament', practice: null, tournament: { laps: NASCAR ? venues.map((_, k) => raceAt(k).laps) : RACE_LAPS, tracks: venues, mode: MODE, races: setups } });
   const results = await Promise.all(races.map(submit));
-  const tally = st.population.map(() => ({ places: [], points: [], wins: 0, podiums: 0, aero: [], laps: [], rammed: [], passes: [], walls: [], tail: [], led: [],
+  // the official results, with the brains exactly as they raced: the app's tournament channel replays these
+  writeJson(TOURNAMENT, {
+    gen, mode: MODE, population: packed(st),
+    races: setups.map((setup, k) => ({ ...setup, order: results[k].map((res, slot) => [res.place, setup.grid[slot]]).sort((x, y) => x[0] - y[0]).map(x => x[1]) })),
+  });
+  const tally = st.population.map(() => ({ places: [], points: [], wins: 0, podiums: 0, aero: [], laps: [], rammed: [], passes: [], walls: [], tail: [], rub: [], led: [],
     stage: [], cautions: [], penalties: [], below: [] }));
   races.forEach((race, k) => results[k].forEach((res, slot) => {
     const t = tally[race.entrants[slot]];
@@ -392,12 +435,13 @@ async function tournament(st, gen) {
     t.passes.push(res.passes);
     t.walls.push(res.walls);
     t.tail.push(res.tail);
+    t.rub.push(res.rub);
     if (res.lap) t.laps.push(res.lap);
   }));
   const agents = st.population.map((a, i) => ({
     name: a.name, species: a.species, avgPlace: round(mean(tally[i].places)), wins: tally[i].wins, podiums: tally[i].podiums,
     aero: round(mean(tally[i].aero)), lap: round(mean(tally[i].laps), 2), rammed: round(mean(tally[i].rammed), 2),
-    passes: round(mean(tally[i].passes), 1), walls: round(mean(tally[i].walls), 1), tail: round(mean(tally[i].tail)),
+    passes: round(mean(tally[i].passes), 1), walls: round(mean(tally[i].walls), 1), tail: round(mean(tally[i].tail)), rub: round(mean(tally[i].rub)),
     points: round(mean(tally[i].points)), winRate: round(tally[i].wins / tally[i].places.length), led: round(mean(tally[i].led)),
     ...NASCAR && { stagePoints: round(mean(tally[i].stage), 1), cautionsCaused: round(mean(tally[i].cautions), 2),
       penalties: round(mean(tally[i].penalties), 2), belowLine: round(mean(tally[i].below)) },
@@ -411,33 +455,72 @@ async function tournament(st, gen) {
     a.recentPoints = [...(a.recentPoints ?? []), agents[i].points].slice(-cfg.window);
   });
 
-  // The yardstick, on 8 fixed tracks. With a past-champion panel (st.yardstick), this generation's best 10
-  // race it; otherwise the best two of each design race the original P1-P10.
-  const base = rosterBase(st), panel = st.yardstick?.length ? range(base.yardstick, st.yardstick.length) : range(base.originals, originals.length);
-  const ours = st.yardstick?.length
-    ? agents.map((g, i) => ({ ...g, i })).sort((x, y) => y.points - x.points).slice(0, panel.length).map(g => g.i)
-    : Object.values(Object.groupBy(agents.map((g, i) => ({ ...g, i })), g => g.species)).flatMap(group => group.sort((x, y) => y.points - x.points).slice(0, 2).map(g => g.i));
-  const benchVenues = NASCAR ? E.YARDSTICK_OVALS : BENCH_TRACKS;
-  const benchRaces = range(0, BENCH_RACES).map(r => ({ kind: 'field', ...onTrack(benchVenues[r], RACE_LAPS, SEASON_M), ...NASCAR && { stages: true },
-    entrants: shuffle([...ours, ...panel], rng) }));
-  const bench = await Promise.all(benchRaces.map(submit));
-  const isNew = i => i < size, field = ours.length + panel.length;
-  const benchPlaces = side => mean(benchRaces.flatMap((race, k) => bench[k].filter((_, s) => isNew(race.entrants[s]) === side).map(res => res.place / (field - 1))));
-  const yardstick = {
-    races: BENCH_RACES,
-    wins: benchRaces.filter((race, k) => isNew(race.entrants[bench[k].findIndex(res => res.place === 0)])).length,
-    newAvg: round(benchPlaces(true)), oldAvg: round(benchPlaces(false)),
-  };
-
   const species = Object.fromEntries(Object.entries(Object.groupBy(agents, g => g.species)).map(([sp, group]) => [sp, {
     avgPlace: round(mean(group.map(g => g.avgPlace))), best: Math.min(...group.map(g => g.avgPlace)),
     wins: group.reduce((n, g) => n + g.wins, 0), aero: round(mean(group.map(g => g.aero))),
     lap: round(Math.min(...group.map(g => g.lap ?? Infinity)), 2), rammed: round(mean(group.map(g => g.rammed)), 2),
-    tail: round(mean(group.map(g => g.tail))), points: round(mean(group.map(g => g.points))), led: round(mean(group.map(g => g.led))),
+    tail: round(mean(group.map(g => g.tail))), rub: round(mean(group.map(g => g.rub))), points: round(mean(group.map(g => g.points))), led: round(mean(group.map(g => g.led))),
   }]));
   // the champion is whoever scored the most race points, which mostly means whoever won the most
   const champion = agents.reduce((x, y) => y.points > x.points ? y : x).name;
-  return { gen, at: new Date().toISOString(), races: raceCount, species, agents, champion, [st.yardstick?.length ? 'vsPast' : 'vsOriginals']: yardstick, replaced: [] };
+  return { gen, at: new Date().toISOString(), races: raceCount, species, agents, champion, replaced: [] };
+}
+
+// ---- the rating ladder ----
+// Each design's best (by this tournament) is frozen as a new player and races RATE_RACES fixed-track races
+// against the strongest frozen champions in the pool; then every result ever recorded is refitted. The
+// generation's champion joins the pool, which keeps the weights of its POOL_ACTIVE strongest players.
+async function rate(st, gen, entry) {
+  if (!ladder.players.length) {
+    // a save with past champions already frozen (hall of fame, an old past-champion panel) starts its pool with them
+    for (const a of [...(st.yardstick ?? []), ...(st.hall ?? [])])
+      if (!ladder.players.some(p => p.name === a.name)) ladder.players.push({ id: ladder.players.length, name: a.name, gen: a.gen ?? null, design: a.species, kind: 'seed', layers: a.layers, genes: a.genes });
+  }
+  const bySpecies = Object.values(Object.groupBy(st.population.map((a, i) => ({ a, i, points: entry.agents[i].points })), x => x.a.species))
+    .map(group => group.sort((x, y) => y.points - x.points));
+  // while the pool is small (a new save), the next-best brains fill the field
+  const pool = poolOf(), extra = Math.max(0, RATE_FIELD / 2 - pool.length);
+  const picks = [...bySpecies.map(g => g[0]), ...bySpecies.flatMap(g => g.slice(1)).sort((x, y) => y.points - x.points).slice(0, extra)];
+  const entrants = picks.map(({ a, i }, k) => {
+    // role 'best': its design's best this generation, the one the rating chart follows
+    const player = { id: ladder.players.length, name: `${a.name}@${gen}`, gen, design: a.species, kind: 'entrant', role: k < bySpecies.length ? 'best' : 'filler', layers: a.layers, genes: a.genes.slice() };
+    ladder.players.push(player);
+    return { player, roster: i };
+  });
+  broadcast({ type: 'roster', drivers: roster(st) });
+  const base = rosterBase(st), ratingOf = p => ratings[p.id]?.r ?? 1000, rng = E.mulberry32(gen * 4217 + 3);
+  const venues = NASCAR ? RATE_OVALS : RATE_TRACKS;
+  const races = range(0, RATE_RACES).map(r => {
+    const rivals = pickOpponents(pool, ratingOf, Math.min(RATE_FIELD - entrants.length, pool.length), rng);
+    const field = shuffle([...entrants.map(e => ({ player: e.player, roster: e.roster })), ...rivals.map(p => ({ player: p, roster: base.pool + pool.indexOf(p) }))], rng);
+    return { field, job: { kind: 'field', ...onTrack(venues[r % venues.length], RATE_LAPS, RATE_M), entrants: field.map(f => f.roster) } };
+  });
+  const results = await Promise.all(races.map(r => submit(r.job)));
+  const official = races.map(({ field }, k) => {
+    const order = results[k].map((res, s) => ({ id: field[s].player.id, place: res.place })).sort((x, y) => x.place - y.place).map(x => x.id);
+    ladder.races.push({ gen, order });
+    return order;
+  });
+  // this round's races exactly as they ran, with everyone in them (before most entrants' weights are dropped)
+  const used = new Map(races.flatMap(({ field }) => field.map(f => [f.player.id, f.player])));
+  writeJson(RATING_RACES, {
+    gen, mode: MODE,
+    players: [...used.values()].map(p => ({ id: p.id, name: p.name, gen: p.gen, design: p.design, kind: p.kind, layers: p.layers, genes: Array.from(p.genes, g => +g.toFixed(5)) })),
+    races: races.map(({ field, job: { entrants, ...scenario } }, k) => ({ scenario, grid: field.map(f => f.player.id), order: official[k] })),
+  });
+  // the champion is kept to race future generations; only the strongest keep their weights
+  const champ = entrants.find(e => e.player.name === `${entry.champion}@${gen}`)?.player;
+  for (const e of entrants) if (e.player !== champ) delete e.player.genes;
+  ratings = fitRatings(ladder.players.length, ladder.races.map(r => r.order));
+  const strongest = new Set(poolOf().sort((a, b) => ratings[b.id].r - ratings[a.id].r).slice(0, POOL_ACTIVE));
+  for (const p of poolOf()) if (!strongest.has(p)) delete p.genes;
+  writeJson(LADDER, { ...ladder, players: ladder.players.map(({ genes, ...p }) => genes ? { ...p, genes: Array.from(genes, g => +g.toFixed(5)) } : p) });
+  writeJson(RATING, {
+    gen, every: RATE_EVERY, races: ladder.races.length,
+    players: ladder.players.map(({ genes, layers, ...p }) => ({ ...p, pool: !!genes, r: Math.round(ratings[p.id].r), sd: Math.round(ratings[p.id].sd) })),
+  });
+  const of = p => ({ name: p.name, r: Math.round(ratings[p.id].r), sd: Math.round(ratings[p.id].sd) });
+  entry.rating = { champion: champ && of(champ), designs: Object.fromEntries(entrants.slice(0, bySpecies.length).map(e => [e.player.design, of(e.player)])) };
 }
 
 // ---- selection: within a species, a clear laggard is replaced by a mutated copy of a strong sibling ----
@@ -445,15 +528,20 @@ function select(st, entry, rng) {
   const score = a => mean(a.recentPoints?.length ? a.recentPoints : [a.last.points]);
   for (const sp of new Set(st.population.map(a => a.species))) {
     const members = st.population.filter(a => a.species === sp).sort((x, y) => score(y) - score(x));
-    const best = members[0], worst = members.at(-1);
-    if (score(best) - score(worst) < cfg.margin || entry.gen - worst.born < cfg.settle) continue;
-    // always copying the single best collapses a design onto one lineage; the top half keeps several alive
-    const pool = cfg.pickFromTop ? members.slice(0, Math.ceil(members.length / 2)) : [best], parent = pool[Math.floor(rng() * pool.length)];
+    const worst = members.at(-1);
+    if (entry.gen - worst.born < cfg.settle) continue;
+    const parent = cfg.familyCap
+      ? pickParent(members, worst, score, { margin: cfg.margin, fromTop: cfg.pickFromTop }, rng)
+      : score(members[0]) - score(worst) >= cfg.margin ? members[0] : null;
+    if (!parent) continue;
     const n = st.clones[parent.founder] = (st.clones[parent.founder] || 1) + 1, name = `${parent.founder}·${n}`;
     entry.replaced.push({ out: worst.name, by: name, parent: parent.name, species: sp });
     const jitter = () => rng() < 0.5 ? 0.8 : 1.25;
+    // not an exact clone: starting a little way off, the copy explores its own direction from the first round
+    const eps = cfg.mutate ? noise((Math.imul(entry.gen, 2654435761) ^ Math.imul(n, 40503) ^ sp.charCodeAt(0)) >>> 0, parent.genes.length) : null;
+    const genes = eps ? parent.genes.map((g, j) => g + cfg.mutate * parent.sigma * eps[j]) : parent.genes.slice();
     Object.assign(worst, {
-      name, founder: parent.founder, label: parent.label, parent: parent.name, born: entry.gen, genes: parent.genes.slice(),
+      name, founder: parent.founder, label: parent.label, parent: parent.name, born: entry.gen, genes,
       lr: clamp(parent.lr * jitter(), 0.001, 0.02), sigma: clamp(parent.sigma * jitter(), 0.01, 0.1), wins: 0, races: 0, recentPoints: [],
       m: null, v: null, t: 0,
     });
@@ -471,15 +559,19 @@ function induct(st, entry) {
 
 function log(entry, minutes) {
   const sp = Object.entries(entry.species).sort((x, y) => y[1].points - x[1].points).map(([k, s]) => `${k} ${s.points.toFixed(2)} (${s.wins} wins)`).join('  ');
-  const vs = entry.vsPast ?? entry.vsOriginals, against = entry.vsPast ? 'past champions' : 'originals';
-  const swaps = entry.replaced.map(r => `${r.out} → ${r.by}`).join(', ');
-  console.log(`gen ${entry.gen} | ${minutes.toFixed(1)} min | champion ${entry.champion} | race points by design: ${sp} | vs ${against}: won ${vs.wins}/${vs.races}, avg ${vs.newAvg} vs ${vs.oldAvg}${swaps ? ` | replaced ${swaps}` : ''}${entry.inducted ? ` | hall of fame: ${entry.inducted}` : ''}`);
+  const swaps = entry.replaced.map(r => `${r.out} → ${r.by}`).join(', '), rt = entry.rating;
+  const rating = rt ? ` | rating: ${Object.entries(rt.designs).map(([d, x]) => `${d} ${x.r}±${Math.round(1.96 * x.sd)}`).join('  ')}` : '';
+  console.log(`gen ${entry.gen} | ${minutes.toFixed(1)} min | champion ${entry.champion} | race points by design: ${sp}${rating}${swaps ? ` | replaced ${swaps}` : ''}${entry.inducted ? ` | hall of fame: ${entry.inducted}` : ''}`);
 }
 
 (async () => {
   const st = load() || found();
   cfg = { ...RECIPE, ...st.config };
   if (!args.pairs) opt.pairs = cfg.pairs;
+  ladder = loadLadder();
+  if (ladder.races.length) ratings = fitRatings(ladder.players.length, ladder.races.map(r => r.order));
+  // rated at generation 0, every RATE_EVERY generations, and straight away for a save that has never been
+  const rateDue = gen => gen % RATE_EVERY === 0 || !ladder.races.length;
   for (const address of (args.remote || '').split(',').filter(Boolean)) {
     known.add(address);
     await connectRemote(address, args.token);
@@ -488,6 +580,7 @@ function log(entry, minutes) {
   console.log(`[evolve] ${st.population.length} pros, generation ${st.generation}, ${slots.length} threads on ${1 + remotes.length} machine(s), ${opt.pairs} pairs × ${opt.rounds} rounds per generation`);
   if (!st.history.length) {
     const t0 = Date.now(), entry = await tournament(st, 0);
+    await rate(st, 0, entry);
     st.history.push(entry);
     save(st);
     log(entry, (Date.now() - t0) / 60000);
@@ -497,6 +590,10 @@ function log(entry, minutes) {
     report({ started: new Date(t0).toISOString(), lastMinutes: progress.lastMinutes });
     await train(st, gen);
     const entry = await tournament(st, gen);
+    if (rateDue(gen)) {
+      report({ phase: 'rating' });
+      await rate(st, gen, entry);
+    }
     select(st, entry, E.mulberry32(gen * 31 + 7));
     induct(st, entry);
     entry.minutes = round((Date.now() - t0) / 60000, 2);
