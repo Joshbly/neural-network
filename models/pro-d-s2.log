@@ -1,0 +1,102 @@
+[pro-d-s2] stage=race layers=36-64-64-64-2 params=10818 pairs=48 sigma=0.04 lr=0.005 workers=16
+it   1 | mean 0.980 max 1.729 | 3s
+it   2 | mean 1.156 max 1.734 | 7s
+it   3 | mean 1.131 max 1.730 | 11s
+it   4 | mean 1.109 max 1.735 | 14s
+it   5 | mean 1.067 max 1.728 | 18s
+it   6 | mean 1.077 max 1.704 | 22s
+it   7 | mean 0.977 max 1.730 | 25s
+it   8 | mean 1.114 max 1.718 | 29s
+it   9 | mean 1.156 max 1.724 | 33s
+it  10 | mean 0.955 max 1.730 | 37s || held-out: done 100% lap 13.36 walls 1.6 | win 25% avgP 3.81 backWins 0 passes 3.6 rammed 1.43 *
+it  11 | mean 1.112 max 1.739 | 41s
+it  12 | mean 1.055 max 1.740 | 45s
+it  13 | mean 1.163 max 1.738 | 49s
+it  14 | mean 0.958 max 1.720 | 52s
+it  15 | mean 1.137 max 1.719 | 57s
+it  16 | mean 1.065 max 1.731 | 60s
+it  17 | mean 1.048 max 1.741 | 63s
+it  18 | mean 1.149 max 1.718 | 67s
+it  19 | mean 1.079 max 1.722 | 71s
+it  20 | mean 1.021 max 1.700 | 74s || held-out: done 100% lap 13.16 walls 1.0 | win 25% avgP 3.41 backWins 0 passes 3.7 rammed 1.31 *
+it  21 | mean 1.120 max 1.728 | 79s
+it  22 | mean 1.135 max 1.736 | 83s
+it  23 | mean 1.142 max 1.724 | 87s
+it  24 | mean 1.233 max 1.736 | 90s
+it  25 | mean 1.139 max 1.739 | 94s
+it  26 | mean 1.028 max 1.699 | 98s
+it  27 | mean 1.163 max 1.718 | 102s
+it  28 | mean 1.260 max 1.727 | 105s
+it  29 | mean 1.177 max 1.740 | 109s
+it  30 | mean 1.090 max 1.720 | 113s || held-out: done 100% lap 13.12 walls 0.8 | win 28% avgP 3.25 backWins 0 passes 3.9 rammed 0.68 *
+it  31 | mean 1.186 max 1.727 | 117s
+it  32 | mean 1.159 max 1.730 | 120s
+it  33 | mean 1.124 max 1.750 | 124s
+it  34 | mean 1.229 max 1.730 | 128s
+it  35 | mean 1.184 max 1.730 | 131s
+it  36 | mean 1.234 max 1.718 | 135s
+it  37 | mean 1.117 max 1.720 | 138s
+it  38 | mean 1.083 max 1.729 | 142s
+it  39 | mean 1.046 max 1.717 | 146s
+it  40 | mean 1.105 max 1.705 | 149s || held-out: done 100% lap 13.31 walls 0.9 | win 28% avgP 2.78 backWins 0 passes 4.7 rammed 1.08 *
+it  41 | mean 1.321 max 1.738 | 154s
+it  42 | mean 0.878 max 1.717 | 157s
+it  43 | mean 1.045 max 1.718 | 161s
+it  44 | mean 1.203 max 1.730 | 165s
+it  45 | mean 1.207 max 1.751 | 169s
+it  46 | mean 1.114 max 1.731 | 173s
+it  47 | mean 1.223 max 1.738 | 177s
+it  48 | mean 1.137 max 1.752 | 180s
+it  49 | mean 1.110 max 1.695 | 184s
+it  50 | mean 1.136 max 1.705 | 188s || held-out: done 100% lap 13.12 walls 0.9 | win 38% avgP 2.44 backWins 0 passes 4.4 rammed 0.53 *
+it  51 | mean 1.105 max 1.735 | 192s
+it  52 | mean 1.307 max 1.728 | 195s
+it  53 | mean 1.036 max 1.735 | 199s
+it  54 | mean 1.290 max 1.736 | 203s
+it  55 | mean 1.209 max 1.737 | 207s
+it  56 | mean 1.044 max 1.735 | 210s
+it  57 | mean 1.172 max 1.731 | 214s
+it  58 | mean 1.207 max 1.731 | 218s
+it  59 | mean 1.236 max 1.729 | 222s
+it  60 | mean 1.054 max 1.726 | 226s || held-out: done 100% lap 13.08 walls 1.4 | win 25% avgP 2.91 backWins 0 passes 4.2 rammed 0.45
+it  61 | mean 1.164 max 1.704 | 230s
+it  62 | mean 1.276 max 1.706 | 234s
+it  63 | mean 1.091 max 1.694 | 238s
+it  64 | mean 1.198 max 1.731 | 241s
+it  65 | mean 1.354 max 1.728 | 244s
+it  66 | mean 1.218 max 1.717 | 248s
+it  67 | mean 1.180 max 1.728 | 251s
+it  68 | mean 1.236 max 1.720 | 255s
+it  69 | mean 1.249 max 1.741 | 259s
+it  70 | mean 0.977 max 1.752 | 263s || held-out: done 100% lap 13.18 walls 1.0 | win 41% avgP 2.69 backWins 0 passes 4.4 rammed 0.55
+it  71 | mean 1.195 max 1.752 | 267s
+it  72 | mean 1.292 max 1.742 | 270s
+it  73 | mean 1.230 max 1.753 | 274s
+it  74 | mean 1.116 max 1.741 | 277s
+it  75 | mean 1.129 max 1.737 | 281s
+it  76 | mean 1.113 max 1.730 | 285s
+it  77 | mean 1.235 max 1.698 | 289s
+it  78 | mean 1.111 max 1.740 | 293s
+it  79 | mean 1.137 max 1.705 | 296s
+it  80 | mean 1.241 max 1.735 | 300s || held-out: done 100% lap 13.04 walls 0.6 | win 34% avgP 2.75 backWins 1 passes 4.6 rammed 0.65
+it  81 | mean 1.201 max 1.730 | 304s
+it  82 | mean 1.260 max 1.706 | 307s
+it  83 | mean 1.314 max 1.737 | 311s
+it  84 | mean 1.114 max 1.697 | 315s
+it  85 | mean 1.077 max 1.731 | 319s
+it  86 | mean 1.267 max 1.729 | 322s
+it  87 | mean 1.194 max 1.740 | 325s
+it  88 | mean 1.143 max 1.732 | 329s
+it  89 | mean 1.195 max 1.752 | 333s
+it  90 | mean 1.047 max 1.728 | 337s || held-out: done 100% lap 12.86 walls 0.9 | win 34% avgP 2.75 backWins 1 passes 4.0 rammed 0.20
+it  91 | mean 1.267 max 1.752 | 341s
+it  92 | mean 1.217 max 1.724 | 345s
+it  93 | mean 1.281 max 1.726 | 348s
+it  94 | mean 1.180 max 1.719 | 352s
+it  95 | mean 0.878 max 1.721 | 356s
+it  96 | mean 0.966 max 1.721 | 359s
+it  97 | mean 1.053 max 1.741 | 362s
+it  98 | mean 1.140 max 1.735 | 366s
+it  99 | mean 1.067 max 1.737 | 369s
+it 100 | mean 1.235 max 1.730 | 373s || held-out: done 100% lap 12.96 walls 0.8 | win 31% avgP 2.56 backWins 0 passes 4.3 rammed 0.72
+[pro-d-s2] best held-out {"iteration":50,"completed":1,"lap":13.124999999999998,"walls":0.875,"score":1.7037961702978686,"winRate":0.375,"avgPlace":2.4375,"fromBackWins":0,"passes":4.40625,"rammed":0.5304327756493823,"raceScore":1.0822517998383272}

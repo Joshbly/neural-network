@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Neural Racers — evolution from scratch</title>
+  <link rel="stylesheet" href="style.css?v=37">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo"><i></i><i></i><i></i></div>
+      <div>
+        <h1>Neural Racers</h1>
+        <p>Twenty brains, five designs, learning to race from nothing on every core: real collisions, slipstream and crash damage</p>
+      </div>
+    </div>
+    <nav>
+      <button id="btn-pause" title="Space">Pause</button>
+      <div class="segmented" id="speed" title="Simulation speed (1–5)"></div>
+      <button id="btn-camera" title="C">Camera: follow</button>
+      <button id="btn-track" title="N">New track</button>
+      <button id="btn-draw" title="D">Draw track</button>
+      <button id="btn-race" class="race" title="R">Race the AI</button>
+      <button id="btn-settings" title="Saves and options (S)">⚙ Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="stage">
+      <canvas id="view"></canvas>
+
+      <div id="hud">
+        <div><span id="hud-gen-label">Generation</span><b id="hud-gen">0</b></div>
+        <div id="hud-heat"><span id="hud-heat-label">Race</span><b id="hud-heat-n">1</b></div>
+        <div><span>Racing</span><b id="hud-alive">20</b></div>
+        <div><span>Speed</span><b id="hud-speed">3×</b></div>
+      </div>
+
+      <div id="tower">
+        <div class="tower-head" id="tower-head">LAP 1/10</div>
+        <ol id="tower-list"></ol>
+      </div>
+
+      <div id="race-hud" hidden>
+        <div><span>Position</span><b id="race-pos">P5</b></div>
+        <div><span>Lap</span><b id="race-lap">1/2</b></div>
+        <div><span>Time</span><b id="race-time">0.00</b></div>
+        <div><span>Damage</span><b id="race-dmg">0%</b></div>
+      </div>
+
+      <div id="phase" hidden></div>
+
+      <div id="playbar" hidden>
+        <span><b>Playing</b> with <span id="play-save"></span>'s cars. Nothing here affects learning.</span>
+        <button id="btn-back" class="primary small" title="E">Back to evolving</button>
+      </div>
+
+      <div id="banner" hidden><b></b><small></small></div>
+      <div id="toasts"></div>
+
+      <div id="intro" class="card">
+        <div class="eyebrow" id="intro-eyebrow">Evolution from scratch</div>
+        <h2>Twenty random brains.<br>Five designs. No knowledge.</h2>
+        <p>Four brains each of <b class="d-a">A</b> 16-10, <b class="d-b">B</b> 32-24-16, <b class="d-c">C</b> 64-64, <b class="d-d">D</b> 64-64-64 and <b class="d-e">E</b> 128-128 neurons, starting from random weights. Nobody told them how to steer, brake or pass. Every generation each one practises hundreds of races on every core but one, getting nudged toward whatever scored better, then all twenty race a tournament and the laggards are replaced by copies of their best sibling. You're watching it happen: the real practice races, then the tournament.</p>
+        <button id="btn-begin" class="primary big">Lights out</button>
+        <small>Click any car to follow it and X-ray its brain · <b>⚙ Settings</b> for saves<br>New track, Draw track or Race the AI to play with the cars · Space pause · C camera · 1–5 speed</small>
+      </div>
+
+      <div id="results" class="card wide" hidden>
+        <div class="eyebrow">Race result</div>
+        <h2 id="res-title"></h2>
+        <table id="res-table"></table>
+        <p id="res-note"></p>
+        <div class="row">
+          <button id="res-again" class="primary">Race again <kbd>Enter</kbd></button>
+          <button id="res-back">Back <kbd>Esc</kbd></button>
+        </div>
+      </div>
+
+      <div id="settings" class="card wide settings-card" hidden>
+        <div class="settings-top"><div class="eyebrow">Settings</div><button id="settings-close" class="ghost small" title="Esc">Close</button></div>
+
+        <h3>Saves</h3>
+        <p class="help">Each save is one evolution. <b>Click a save to load it</b>: the loaded save is the one learning and the one you see. It saves itself every time a generation finishes, and switching keeps everything up to that point.</p>
+        <div id="slot-list"></div>
+        <div class="row">
+          <button id="btn-slot-scratch" class="small" title="Twenty random brains, four of each design, loaded and learning right away">+ New save from scratch</button>
+          <span class="help" id="slot-count"></span>
+        </div>
+
+        <h3>Display</h3>
+        <div class="options">
+          <div class="race-length" title="Length of your races in playing mode; evolving always shows the 10-lap tournament">Race length when playing <div class="segmented" id="race-length"></div></div>
+          <label><input type="checkbox" id="tog-rays" checked> Sensors</label>
+        </div>
+      </div>
+    </section>
+
+    <aside>
+      <div class="panel">
+        <h3><span id="brain-title">Brain</span> <em class="live">live</em></h3>
+        <canvas id="brain"></canvas>
+        <div class="xray" title="Each input is blanked out in turn and the brain asked again; these move its hands the most right now">
+          <label>Why it's doing this</label>
+          <div id="xray"></div>
+        </div>
+        <div class="car-stats" id="car-stats"></div>
+        <div class="legend"><span class="c">excitatory signal</span><span class="p">inhibitory signal</span><span>thickness = weight</span></div>
+      </div>
+
+      <div class="panel" id="panel-evolution">
+        <h3>Evolution <span class="watch-name" id="watch-name"></span></h3>
+        <div class="engine" id="engine">
+          <div class="engine-line"><i id="engine-dot"></i><span id="engine-text">Looking for the evolution engine…</span><button id="btn-engine" class="ghost small" hidden>Start</button></div>
+          <div class="engine-bar"><b id="engine-bar"></b></div>
+        </div>
+        <div class="practice-board" id="practice-board">
+          <div class="pb-head"><b>Practice board</b><span id="pb-summary"></span></div>
+          <div class="pb-rounds" id="pb-rounds"></div>
+          <div class="pb-grid" id="pb-grid"></div>
+          <label class="chart-label">Average practice reward each round, by design (higher is better)</label>
+          <canvas id="chart-practice" class="chart"></canvas>
+        </div>
+        <div class="tiles">
+          <div><span>Champion</span><b id="stat-champion">—</b></div>
+          <div><span>Fastest lap</span><b id="stat-lap">—</b></div>
+          <div><span>Per generation</span><b id="stat-gen-time">—</b></div>
+        </div>
+        <table class="designs" id="design-table"></table>
+        <label class="chart-label" id="vs-label">The best 10 now vs a frozen panel of past champions (gold: now · grey: the panel)</label>
+        <canvas id="chart-vs" class="chart"></canvas>
+        <label class="chart-label">Fastest tournament lap by design, each generation (lower is faster)</label>
+        <canvas id="chart-laps" class="chart"></canvas>
+        <label class="chart-label">Share of tournament races won, by design (winning is what counts)</label>
+        <canvas id="chart-designs" class="chart"></canvas>
+        <label class="chart-label">Downforce lost per 10-lap race, by design (lower is cleaner)</label>
+        <canvas id="chart-aero" class="chart"></canvas>
+      </div>
+
+      <div class="panel tips">
+        <h3>What to watch for</h3>
+        <ol>
+          <li><b>From nothing:</b> generation 0 is random wiring. Expect cars that drive straight into the first wall. Watch the fastest-lap chart: first nobody finishes a lap, then laps start appearing, then they get quicker.</li>
+          <li><b>How they learn:</b> each generation every brain races hundreds of practice races against the others, always on brand-new tracks, and its weights are nudged toward whatever finished better. Then a 24-race tournament ranks everyone, and in each design the laggard is replaced by a copy of its best sibling (<b>A1·2</b> is the second of A1's line). Designs never mix and each keeps four seats, so the standings fairly answer "which brain is best?"</li>
+          <li><b>How a brain drives:</b> 38 numbers come in (wall and car distances, where the road goes next, speed, slide, slipstream, its own damage) and two come out (steering, throttle). The <b>X-ray</b> under the brain shows which inputs are moving its hands right now.</li>
+          <li><b>Stock-car aero:</b> sit in someone's draft to build a run; the speed carries for about a second after you pull out, enough to slingshot alongside. Glue yourself to their bumper and you push them faster too.</li>
+          <li><b>Winning is everything:</b> a win is worth more than twice second place, and the rest of the field slides toward nothing, so P2 is never good enough. Every moment spent leading earns a bonus too: take the lead and keep everyone else from winning. Lap times only break ties. The tournament judges the same way, so the brains that survive are the ones that win.</li>
+          <li><b>No riding bumpers:</b> drafting from a few lengths back is free, but every moment spent glued to the bumper of the car ahead (within two lengths) costs reward in practice, so they learn to pull out and pass instead of sitting there. The <b>Tail</b> column shows how much of a race each design still spends on someone's bumper.</li>
+          <li><b>Rear-wheel drive:</b> too much throttle out of a slow corner spins the rear wheels and swings the tail out, braking hard while turning at speed lightens the rear, and a shove on the rear quarter can spin a car round. Feather the throttle and countersteer and you can hold a drift. Tyre smoke shows when the rear is sliding.</li>
+          <li><b>Attack and defend:</b> put your nose on the rear corner of the car ahead at speed and steer into it, and a leader that does nothing gets thrown sideways or spun. A leader that catches it with countersteer survives, and the attacker can wreck its own nose trying. Practice includes two-car duels where only the winner scores: starting behind, the only way to score is to get past, so the brains learn to out-brake or spin the car ahead; starting in front, they learn to hold on and cover their rear corners.</li>
+          <li><b>Rubbin's racing, until it isn't:</b> bump-drafting is free and door-to-door rubbing only dents sheet metal, but damage climbs steeply with impact speed: a wrecked splitter means no front grip, a lost spoiler means a loose rear, and a big hit bends the suspension or ends the race.</li>
+          <li><span class="cyan">Blue cones</span> are slipstreams. <span class="pink">Pink rays</span> show a car spotting a rival. The <span class="orange">orange beads</span> are the road ahead the focused car is reading.</li>
+          <li><b>Evolving vs playing:</b> by default the screen shows what the engine is doing right now: a real practice race from the current round (one brain learning, with 96 versions of it racing that exact race on the engine), or a tournament race while the generation is being judged. <b>New track</b>, <b>Draw track</b> and <b>Race the AI</b> switch to playing: the same cars on your track, just for fun; learning carries on in the background. <b>Back to evolving</b> returns to the live view.</li>
+          <li>Then <b>race them yourself</b>: you start mid-pack against the loaded save's top 9.</li>
+        </ol>
+      </div>
+    </aside>
+  </main>
+
+  <script src="js/nn.js?v=37"></script>
+  <script src="js/track.js?v=37"></script>
+  <script src="js/car.js?v=37"></script>
+  <script src="js/heat.js?v=37"></script>
+  <script src="js/sim.js?v=37"></script>
+  <script src="js/viz.js?v=37"></script>
+  <script src="js/render.js?v=37"></script>
+  <script src="js/main.js?v=37"></script>
+</body>
+</html>

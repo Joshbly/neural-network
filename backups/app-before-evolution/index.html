@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Neural Racers — neural networks learning to race</title>
+  <link rel="stylesheet" href="style.css?v=15">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo"><i></i><i></i><i></i></div>
+      <div>
+        <h1>Neural Racers</h1>
+        <p>Two neural-network designs evolving head-to-head, racing wheel-to-wheel with real collisions, slipstream and crash damage</p>
+      </div>
+    </div>
+    <nav>
+      <button id="btn-pause" title="Space">Pause</button>
+      <div class="segmented" id="speed" title="Simulation speed (1–5)"></div>
+      <button id="btn-camera" title="C">Camera: follow</button>
+      <button id="btn-track" title="N">New track</button>
+      <button id="btn-draw" title="D">Draw track</button>
+      <button id="btn-race" class="ghost" title="R">Race the AI</button>
+      <button id="btn-pros" class="race" title="Train a field first: node train/field.js" disabled>Watch the pros</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="stage">
+      <canvas id="view"></canvas>
+
+      <div id="hud">
+        <div><span id="hud-gen-label">Generation</span><b id="hud-gen">1</b></div>
+        <div id="hud-heat" class="clickable" title="Watch another heat (H)"><span>Heat ▸</span><b id="hud-heat-n">1/6</b></div>
+        <div><span>Racing</span><b id="hud-alive">20</b></div>
+        <div><span>Speed</span><b id="hud-speed">3×</b></div>
+      </div>
+
+      <div id="tower">
+        <div class="tower-head" id="tower-head">LAP 1/2</div>
+        <ol id="tower-list"></ol>
+      </div>
+
+      <div id="race-hud" hidden>
+        <div><span>Position</span><b id="race-pos">P5</b></div>
+        <div><span>Lap</span><b id="race-lap">1/2</b></div>
+        <div><span>Time</span><b id="race-time">0.00</b></div>
+        <div><span>Damage</span><b id="race-dmg">0%</b></div>
+      </div>
+
+      <div id="banner" hidden><b></b><small></small></div>
+      <div id="toasts"></div>
+
+      <div id="intro" class="card">
+        <div class="eyebrow">Generation 1</div>
+        <h2>120 random brains.<br>Two designs. One track.</h2>
+        <p>Every car is driven by its own neural network that reads <b>the road ahead</b>, where it sits <b>across the track</b>, nearby <b>walls and rivals</b>, and what the seat tells it. Every heat is an A/B test: <b class="species-a">10 A cars</b> (2 hidden layers, 26 neurons) race <b class="species-b">10 B cars</b> (3 hidden layers, 72 neurons). Each design breeds only with its own kind. Same track, same traffic, same physics. Which brain wins?</p>
+        <button id="btn-begin" class="primary big">Lights out</button>
+        <small>Press <b>5</b> any time to fast-forward evolution · click any car to follow it · <b>P</b> watches the top-20 pro field<br>Space pause · C camera · H next heat · N new track · D draw · R race</small>
+      </div>
+
+      <div id="results" class="card wide" hidden>
+        <div class="eyebrow">Race result</div>
+        <h2 id="res-title"></h2>
+        <table id="res-table"></table>
+        <p id="res-note"></p>
+        <div class="row">
+          <button id="res-again" class="primary">Race again <kbd>Enter</kbd></button>
+          <button id="res-back">Back to training <kbd>Esc</kbd></button>
+        </div>
+      </div>
+    </section>
+
+    <aside>
+      <div class="panel">
+        <h3><span id="brain-title">Brain of car #1</span> <em class="live">live</em></h3>
+        <canvas id="brain"></canvas>
+        <div class="car-stats" id="car-stats"></div>
+        <div class="legend"><span class="c">excitatory signal</span><span class="p">inhibitory signal</span><span>thickness = weight</span></div>
+      </div>
+
+      <div class="panel">
+        <h3>Evolution · A/B test</h3>
+        <div class="species-legend" id="species-legend"></div>
+        <div class="tiles">
+          <div><span>Lap record</span><b id="stat-lap">—</b></div>
+          <div><span>Wins, last 10 gens</span><b id="stat-wins">—</b></div>
+          <div><span>Your best lap</span><b id="stat-human">—</b></div>
+        </div>
+        <label class="chart-label">Share of heat wins, last 5 generations, A vs B</label>
+        <canvas id="chart-progress" class="chart"></canvas>
+        <label class="chart-label">Fastest lap each generation, A vs B</label>
+        <canvas id="chart-lap" class="chart"></canvas>
+        <label class="chart-label">Wall hits per finisher, A vs B (lower is cleaner)</label>
+        <canvas id="chart-walls" class="chart"></canvas>
+      </div>
+
+      <div class="panel settings">
+        <div class="race-length" title="Longer races wash out grid-position luck and give more chances to pass; each generation takes longer">Race length <div class="segmented" id="race-length"></div></div>
+        <label class="slider" title="Chance that each weight of a child gets nudged; applies to both designs">Mutation rate <input type="range" id="mutation" min="1" max="20" value="6"><output id="mutation-val">6%</output></label>
+        <div class="toggles">
+          <label><input type="checkbox" id="tog-line" checked> Racing line</label>
+          <label><input type="checkbox" id="tog-rays" checked> Sensors</label>
+          <button id="btn-restart" class="ghost">Reset all brains</button>
+        </div>
+      </div>
+
+      <div class="panel tips">
+        <h3>What to watch for</h3>
+        <ol>
+          <li><b>Watch the pros:</b> the 20 best of 53 drivers from offline training (evolution strategies: solo pace first, then racing ever-stronger rival fields on 16 randomised tracks), picked by 80 ten-lap, 20-car races on tracks none of them trained on. They've never seen this track either, and they race it anyway.</li>
+          <li><b>Stock-car aero:</b> sit in someone's draft to build a run; the speed carries for about a second after you pull out, enough to slingshot alongside. Glue yourself to their bumper and you push them faster too. Get your nose on their rear quarter and you side-draft them, slowing them down.</li>
+          <li><b>A vs B:</b> <span class="species-a">blue cars</span> run the small 2-layer brain, <span class="species-b">violet cars</span> the bigger 3-layer one. Watch the charts and the heat-win tally. In testing, B starts slower (evolution has 3× more weights to tune) and the small brain stays slightly ahead even after 150 generations.</li>
+          <li><b>10-lap races:</b> long enough that grid position barely matters and there's time to work through traffic. Every pass earns a car what it costs the car it passed, so attackers learn to pass and leaders learn to defend.</li>
+          <li><b>Mirrors &amp; defending:</b> cars can see behind them (the rear pink rays), feel how fast the car behind is closing, and know which side it's on. The top pro uses it: leading from pole on 12 unseen tracks it was passed 3 times with its mirrors and 34 times with them blacked out. It mostly defends by never letting the attacker get a run, with only a slight lean toward covering the attacker's side, not hard blocking.</li>
+          <li><b>Rubbin's racing, until it isn't:</b> bump-drafting is free and door-to-door rubbing only dents sheet metal (a touch of drag, no downforce lost), but damage climbs steeply with impact speed. A hard rear-end wrecks the hitter's splitter (front downforce gone, so it pushes wide in every fast corner); a spun car's spoiler goes and it gets loose; grinding a wall shreds the bodywork; a big hit bends the suspension or ends the race. Watch the "aero lost" readout.</li>
+          <li><b>Early generations:</b> a demolition derby. Brains pinball off walls and each other, and the damage slows them down.</li>
+          <li><b>Clean driving emerges:</b> walls hurt, so the wall-hit chart falls. The <span class="orange">orange beads</span> are the road ahead the focused car is reading, which is how it knows to brake <i>before</i> a hairpin it can't see yet.</li>
+          <li><span class="cyan">Blue cones</span> are slipstreams. Watch cars tuck in behind on the straights, then pull out to pass. Following too closely in corners costs grip ("dirty air").</li>
+          <li><span class="pink">Pink rays</span> show a car spotting a rival. <span class="gold">★</span> marks a returning champion.</li>
+          <li>Then <b>race them yourself</b>: you start mid-pack against the top 9.</li>
+        </ol>
+      </div>
+    </aside>
+  </main>
+
+  <script src="js/nn.js?v=15"></script>
+  <script src="js/track.js?v=15"></script>
+  <script src="js/car.js?v=15"></script>
+  <script src="js/heat.js?v=15"></script>
+  <script src="js/sim.js?v=15"></script>
+  <script src="js/viz.js?v=15"></script>
+  <script src="js/render.js?v=15"></script>
+  <script src="js/main.js?v=15"></script>
+</body>
+</html>

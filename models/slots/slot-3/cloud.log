@@ -1,0 +1,32 @@
+Note that running a local entrypoint in detached mode only keeps the last triggered Modal function alive after the parent process has been killed or disconnected.
+✓ Initialized. View run at 
+https://modal.com/apps/joshbly/main/ap-XQ71Nxv4SmYn7BmMEaqGSe
+✓ Created objects.
+├── ✓ Uploaded /Users/josh-profound/neural-network/train/modal_train.py
+├── ✓ Uploaded 
+│   /Users/josh-profound/neural-network/models/originals/tab-field.json
+├── ✓ Uploaded /Users/josh-profound/neural-network/js
+├── ✓ Uploaded /Users/josh-profound/neural-network/train
+└── ✓ Created Function train.
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /Users/josh-profound/neural-network/train/modal_train.py:49 in main          │
+│                                                                              │
+│   48 │   try:                                                                │
+│ ❱ 49 │   │   volume.remove_file(f"/slots/{slot}", recursive=True)            │
+│   50 │   except FileNotFoundError:                                           │
+│                                                                              │
+│ /Users/josh-profound/neural-network/.venv/lib/python3.13/site-packages/modal │
+│ /_object.py:45 in wrapped                                                    │
+│                                                                              │
+│    44 │   │   await self.hydrate()                                           │
+│ ❱  45 │   │   return await method(self, *args, **kwargs)                     │
+│    46                                                                        │
+│                                                                              │
+│ /Users/josh-profound/neural-network/.venv/lib/python3.13/site-packages/modal │
+│ /volume.py:1155 in remove_file                                               │
+│                                                                              │
+│   1154 │   │   │   │   req = api_pb2.VolumeRemoveFileRequest(volume_id=self. │
+│ ❱ 1155 │   │   │   │   await self.client._stub.VolumeRemoveFile(req)         │
+│   1156 │   │   │   else:                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+InvalidError: No such file or directory.

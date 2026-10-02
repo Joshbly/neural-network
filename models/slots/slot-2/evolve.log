@@ -1,0 +1,5 @@
+[evolve] 20 pros, generation 131, 17 threads on 1 machine(s), 48 pairs × 5 rounds per generation
+gen 132 | 11.8 min | champion B2·66 | avg finish by design: B 0.28  D 0.31  A 0.38  C 0.74  E 0.79 | vs originals: won 8/8, avg 0.291 vs 0.709 | replaced D1·60 → D1·62
+gen 133 | 10.4 min | champion A2·71 | avg finish by design: A 0.29  B 0.34  D 0.37  C 0.71  E 0.78 | vs originals: won 8/8, avg 0.278 vs 0.722 | replaced B2·76 → B2·78, E2·66 → E2·67
+gen 134 | 10.3 min | champion D1·46 | avg finish by design: A 0.31  D 0.31  B 0.41  C 0.72  E 0.75 | vs originals: won 8/8, avg 0.271 vs 0.729 | replaced B2·75 → B2·79, C3·56 → C3·57
+gen 135 | 10.9 min | champion A2·71 | avg finish by design: A 0.31  B 0.34  D 0.34  C 0.71  E 0.81 | vs originals: won 8/8, avg 0.276 vs 0.724 | replaced A2·70 → A2·75, C3·53 → C3·58

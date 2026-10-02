@@ -1,0 +1,11 @@
+TIME TRIAL (2 laps, solo)
+  GA home track (seed 2)     pro P1 {"finished":"1/1","lap":14.38,"walls":0}   GA #1 {"finished":"0/1","lap":17.95,"walls":7}
+  12 unseen tracks           pro P1 {"finished":"12/12","lap":13.22,"walls":0.5}   GA #1 {"finished":"11/12","lap":16.14,"walls":9.8}
+
+SHOWDOWN: 10 pros vs 10 GA brains, 16 10-lap races of 20 cars (12 unseen tracks + 4 on the GA's home track)
+  pro  wins 16/16 | podiums 48 | avg finish 5.6 | walls 6.5 | passes 13.9 | rammed 3.47
+  ga   wins 0/16 | podiums 0 | avg finish 15.4 | walls 28.9 | passes 11.6 | rammed 4.05
+
+MIRROR TEST: P1 vs P2-P8, from pole and from last, 12 unseen tracks
+  mirrors on          | from pole: wins 11/12, avg finish 1.08, passed 0.3x | from last: wins 0/12, avg finish 7.17, passes 2.2
+  mirrors BLACKED OUT | from pole: wins 6/12, avg finish 2.58, passed 2.8x | from last: wins 0/12, avg finish 6.75, passes 2.5

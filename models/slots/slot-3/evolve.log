@@ -1,0 +1,5 @@
+[evolve] 20 pros, generation 0, 17 workers, 48 pairs × 5 rounds per generation
+gen 0 | 0.0 min | champion A4 | avg finish by design: A 0.45  B 0.46  C 0.52  D 0.52  E 0.55 | vs originals: won 0/8, avg 0.754 vs 0.246
+gen 1 | 2.5 min | champion E3 | avg finish by design: E 0.17  D 0.40  C 0.44  B 0.72  A 0.77 | vs originals: won 0/8, avg 0.741 vs 0.259
+[evolve] 20 pros, generation 1, 17 workers, 48 pairs × 5 rounds per generation
+gen 2 | 11.7 min | champion D2 | avg finish by design: E 0.31  D 0.35  C 0.37  A 0.73  B 0.74 | vs originals: won 0/8, avg 0.702 vs 0.298 | replaced A2 → A3·2, B4 → B3·2, C1 → C4·2, D3 → D2·2, E2 → E1·2
