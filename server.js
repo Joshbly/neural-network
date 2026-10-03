@@ -83,6 +83,9 @@ async function syncCloud() {
   await pull(slot, 'summary.json');
   const now = readJson(path.join(slotDir(slot), 'summary.json'))?.generation;
   if (now != null && now !== before) {
+    // the recorded races first: the app reloads them when it sees state.json's new generation
+    await pull(slot, 'tournament.json');
+    await pull(slot, 'rating-races.json');
     await pull(slot, 'state.json');
     await pull(slot, 'rating.json');
     await pull(slot, 'ladder.json');
@@ -203,7 +206,7 @@ async function slotAction(params) {
   if (cloud && (action === 'train' || action === 'cloud' || (action === 'delete' && id === cloud.slot)))
     return [409, { error: `"${readJson(path.join(slotDir(cloud.slot), 'meta.json'))?.name}" is training on Modal. Stop it first.` }];
   if (action === 'cloud') {
-    const hours = Math.min(4.5, Math.max(0.1, +params.get('hours') || 1)), helpers = Math.min(3, Math.max(0, Math.round(+params.get('helpers') || 0)));
+    const hours = Math.min(8, Math.max(0.1, +params.get('hours') || 1)), helpers = Math.min(3, Math.max(0, Math.round(+params.get('helpers') || 0)));
     await stopEngine();
     active = id;
     writeJson(ACTIVE, { id });

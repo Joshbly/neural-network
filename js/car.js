@@ -38,7 +38,15 @@ IN.aero = IN.position + 1;
 // and where the pavement ends, negative on the grass (on a road course both are just the road's edge)
 IN.edge = IN.aero + 2;
 IN.paved = IN.edge + 1;
-const INPUT_COUNT = IN.paved + 1;
+// how soon it hits the car ahead at the current closing speed: the cue to brake that the near-sighted car sensors
+// give too late at speed (0 with nothing coming, rising to 1 at contact)
+IN.ttc = IN.paved + 1;
+// the banking, as a driver feels it in the seat: under the car, the steepest in the stretch it's looking into (in
+// its own lane), and how much steeper the top lane is than its own there (progressive corners). One brain drives
+// 3° Bowman Gray and 33° Talladega; without these it can't tell which it's on. Zero on the generated tracks.
+IN.bank = IN.ttc + 1;
+const INPUT_COUNT = IN.bank + 3;
+const BANK_NORM = 0.6, BANK_STEP = 5 * Math.PI / 180;
 
 // mirroring the world left/right: rays swap sides, anything signed left/right flips sign
 const MIRROR_FROM = Array.from({ length: INPUT_COUNT }, (_, i) => i);
@@ -151,7 +159,9 @@ const STOCK_BASE = {
   // Measured from the middle on the arcade cars' scale, a car rubbing your door and one a metre away looked
   // almost the same, and two-wide pack racing is all about that metre.
   carNear: 12, speedNorm: 6.5, slideNorm: 1.5, yawNorm: 0.012, slipNorm: 1, lookScale: 1.5, wakeSpeed: 4,
-  stallMin: 60,
+  // stalled: no real forward progress (2 m) in 10 s, which catches wrong-way and truly stuck cars; a car
+  // crawling out of the grass or turning round after a spin has race control's tow rule to beat instead
+  stallWindow: 600, stallMin: 8,
   // real tyres: twice the load gives less than twice the grip, so steep banking helps less than the textbook
   loadSens: 0.5,
   // Crashes, by the hit's delta-v (the change in speed straight into what was hit). Rubbing and bump drafting
@@ -162,7 +172,15 @@ const STOCK_BASE = {
   // on the wall for 3 s costs about a tenth of the downforce. Door to door with another car, sheet metal
   // dents for the first second; after a full second without a break both cars lose a point of downforce
   // a second at each end until they part.
+  // On top of the lost downforce, damage hurts the way it does a Next Gen car (stock cars only, all smooth in the
+  // share lost): the nose and tail drag and the nose overheats the engine; the damaged end loses mechanical grip too
+  // (a crumpled nose pushes, a torn tail goes loose); and in traffic the draft does a damaged car less good, dirty
+  // air hurts it more, and a crumpled nose gives the car ahead less of a push. 40% of the downforce gone costs about
+  // 8% of a lap at the intermediates, 12% at the superspeedways (train/nascar/line.js lap model). Grinding the wall
+  // can also cut a tyre: a slow puncture deflates over 3 s, costs rear grip and adds drag for a lap and a half.
   damage: {
+    aero: { nose: 0.04, tail: 0.02, overheat: 0.025, frontGrip: 0.15, rearGrip: 0.1, draft: 1, dirty: 1, push: 1 },
+    puncture: { hazard: 0.3, laps: 1.5, grip: 0.3, drag: 0.06 },
     lean: { after: 60, grace: 6, perStep: 0.01 / 60 },
     threshold: { car: 8 / MPH_PER_SPEED, wall: 8 / MPH_PER_SPEED },
     hit: { car: { front: 6.5, side: 5.4, rear: 3.8 }, wall: { front: 13.5, side: 9.2, rear: 10.8 } },
@@ -195,6 +213,29 @@ const SURFACE_DRAG = [0, 0, 0.3 * G, 0.65 * G, 0, 0.5 * G];
 const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
 const WALL_COS = WALL_RAYS.map(a => dcos(a)), WALL_SIN = WALL_RAYS.map(a => dsin(a));
 const CAR_COS = CAR_RAYS.map(a => dcos(a)), CAR_SIN = CAR_RAYS.map(a => dsin(a));
+// the car "ahead" for a sector-sensing car: the nearest within 25 degrees of straight ahead
+const AHEAD_ARC = 25 * Math.PI / 180, BOX_CORNERS = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+// how far a box body reaches from its centre along a unit direction (ux, uy) in its own frame
+const boxReach = (box, ux, uy) => Math.min(box.hx / Math.max(1e-9, Math.abs(ux)), box.hy / Math.max(1e-9, Math.abs(uy)));
+// the two car sensors either side of a bearing (radians, -PI..PI; CAR_RAYS run from -150 to 180 degrees) and how
+// far along from the first to the second it lies, 0..1 (left in sectorI, sectorJ, sectorF: no garbage per call)
+let sectorI = 0, sectorJ = 0, sectorF = 0;
+function sectorOf(theta) {
+  const n = CAR_RAYS.length, last = CAR_RAYS[n - 1];
+  if (theta < CAR_RAYS[0]) {
+    sectorI = n - 1;
+    sectorJ = 0;
+    sectorF = (theta + 2 * Math.PI - last) / (CAR_RAYS[0] + 2 * Math.PI - last);
+    return;
+  }
+  let i = 0;
+  while (i < n - 1 && theta >= CAR_RAYS[i + 1]) i++;
+  sectorI = i;
+  sectorJ = i === n - 1 ? 0 : i + 1;
+  sectorF = i === n - 1 ? 0 : (theta - CAR_RAYS[i]) / (CAR_RAYS[i + 1] - CAR_RAYS[i]);
+}
+// the cross-fade between neighbouring sensors: a smooth 0..1 rise, flat at the top
+const fade = x => x * (1.5 - 0.5 * x * x);
 const rayX = new Float32Array(CAR_RAYS.length), rayY = new Float32Array(CAR_RAYS.length);
 
 // impulse against an immovable surface at offset (rx, ry) from the car's centre, normal pointing at the car
@@ -219,6 +260,18 @@ function closingSpeed(car, other) {
   if (!other) return 0;
   const dx = other.x - car.x, dy = other.y - car.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
   return clamp(((car.vx - other.vx) * dx + (car.vy - other.vy) * dy) / d / 3, -1, 1);
+}
+
+// time to contact with the car ahead at the current closing speed, as a warning: 0 when it's TTC_HORIZON seconds
+// or more away (or not closing at all), rising smoothly to 1 at contact, whatever the speeds involved
+const TTC_HORIZON = 4;
+function timeToContact(car, other) {
+  if (!other) return 0;
+  const dx = other.x - car.x, dy = other.y - car.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+  const closing = ((car.vx - other.vx) * dx + (car.vy - other.vy) * dy) / d;
+  if (closing <= 0) return 0;
+  const t = Math.max(0, d - (car.spec.len + other.spec.len) / 2) / closing / 60 / TTC_HORIZON;
+  return t >= 1 ? 0 : (1 - t) * (1 - t);
 }
 
 class Car {
@@ -248,6 +301,8 @@ class Car {
     this.doorSteps = 0;
     this.doorGap = Infinity;
     this.doorTouch = false;
+    // a slow puncture in progress: { at, until } in the car's own steps
+    this.puncture = null;
     // race control (NASCAR ovals): laps handed back (lucky dog), laps run under yellow (they don't count), and
     // whether the car is under its command
     this.freeLaps = this.bonus = this.yellowLaps = 0;
@@ -280,6 +335,17 @@ class Car {
   get condition() {
     const { front, side, rear } = this.damage;
     return { front: 1 - 1 / (1 + AERO_LOSS * front), rear: 1 - 1 / (1 + AERO_LOSS * rear), drag: NOSE_DRAG * front + TAIL_DRAG * rear + FLANK_DRAG * side };
+  }
+
+  // how flat a slow puncture has gone, 0 to 1: it deflates over 3 s, holds, and eases off again at the end
+  flatness() {
+    const { at, until } = this.puncture, s = this.steps;
+    if (s >= until) {
+      this.puncture = null;
+      return 0;
+    }
+    const t = Math.min(1, (s - at) / 180, (until - s) / 180);
+    return t * t * (3 - 2 * t);
   }
 
   // takes `points` more of each end's downforce away (0.01: one percentage point), whatever is already gone
@@ -321,6 +387,9 @@ class Car {
       this.pull += 0.04 * Math.sign(-dx * this.s + dy * this.c);
     }
     if (chance(this, j, D.wreck, D.luck, 3)) this.wrecked = true;
+    // grinding the wall can cut a tyre: a chance with every scrape, the harder and longer the likelier
+    if (kind === 'wall' && D.puncture && !this.puncture && rub > 0 && luck(this, rub, 4) < D.puncture.hazard * rub)
+      this.puncture = { at: this.steps, until: this.steps + Math.round(D.puncture.laps * this.track.length / (this.track.refSpeed ?? 5)) };
     return zone;
   }
 
@@ -358,6 +427,19 @@ class Car {
 
     // rivals: nearest chassis circle along each car ray
     this.carSight.fill(CAR_RAY_LEN);
+    // a point of a rival's body (bearing, gap from my bodywork, distance from my centre) on the two sensors either side
+    const read = (r, reading) => {
+      if (reading < 1e-6) return;
+      const sight = P.selfExtent[r] + P.carNear * (1 / reading - 1);
+      if (sight < this.carSight[r]) this.carSight[r] = sight;
+    };
+    const feel = (theta, gap, dist) => {
+      if (dist > CAR_RAY_LEN) return;
+      const close = 1 / (1 + Math.max(0, gap) / P.carNear);
+      sectorOf(theta);
+      read(sectorI, fade(1 - sectorF) * close);
+      read(sectorJ, fade(sectorF) * close);
+    };
     let ahead = null, aheadDist = CAR_RAY_LEN, behind = null, behindDist = ATTACK_RANGE, behindSide = 0;
     for (let r = 0; r < CAR_RAYS.length; r++) {
       rayX[r] = c * CAR_COS[r] - s * CAR_SIN[r];
@@ -376,6 +458,28 @@ class Car {
         behind = other;
         behindDist = d;
         behindSide = across;
+      }
+      if (P.box && other.spec.box) {
+        // stock cars sense in soft sectors, not thin rays: a car between two sensor directions shows on both,
+        // cross-faded by how near it is to each, so one sliding round you fades from one sensor to the next with
+        // no blind spot between them and no jump. It's felt at its middle and its four corners, so a car whose
+        // tail is still at your door still reads beside you. Each sensor reads how close the bodywork is, stored
+        // as the distance along it that gives the same reading, so the inputs below (and the drawn rays) work
+        // unchanged.
+        const theta = datan2(across, fore), oc = other.c, os = other.s, { hx, hy } = other.spec.box, inv = 1 / Math.max(d, 1e-9);
+        const gap = d - boxReach(P.box, fore * inv, across * inv) - boxReach(other.spec.box, (-dx * oc - dy * os) * inv, (dx * os - dy * oc) * inv);
+        feel(theta, gap, d);
+        // close by, its corners too (further off, its middle tells you enough)
+        if (d < 3 * P.len) for (const [kx, ky] of BOX_CORNERS) {
+          const px = dx + oc * kx * hx - os * ky * hy, py = dy + os * kx * hx + oc * ky * hy, pd = Math.max(Math.sqrt(px * px + py * py), 1e-9);
+          const pf = px * c + py * s, pa = -px * s + py * c;
+          feel(datan2(pa, pf), pd - boxReach(P.box, pf / pd, pa / pd), pd);
+        }
+        if (Math.abs(theta) < AHEAD_ARC && gap < aheadDist) {
+          ahead = other;
+          aheadDist = gap;
+        }
+        continue;
       }
       if (other.spec.box) {
         // the ray against the other body's outline, in its own frame (slab test)
@@ -427,6 +531,9 @@ class Car {
         : P.carNear ? 1 / (1 + Math.max(0, this.carSight[r] - P.selfExtent[r]) / P.carNear) : 1 / (1 + this.carSight[r] / 25);
     inputs[IN.closing] = closingSpeed(this, ahead);
     inputs[IN.rearClosing] = closingSpeed(this, behind);
+    inputs[IN.ttc] = timeToContact(this, ahead);
+    // for drawing the warning only
+    this.aheadCar = ahead;
     // which side the attack is coming from: makes "move over to cover it" a one-weight behaviour
     inputs[IN.attacker] = behind ? clamp(behindSide / track.halfWidth, -1, 1) : 0;
 
@@ -460,6 +567,17 @@ class Car {
     // share of front and rear downforce lost, as in `condition`
     inputs[IN.aero] = 1 - 1 / (1 + AERO_LOSS * this.damage.front);
     inputs[IN.aero + 1] = 1 - 1 / (1 + AERO_LOSS * this.damage.rear);
+    if (track.nascar) {
+      const here = track.bankAt(this.lastArc, lateral);
+      let ahead = here, at = this.lastArc;
+      for (const d of LOOKAHEAD) {
+        const arc = this.lastArc + d * P.lookScale, bank = track.bankAt(arc, lateral);
+        if (bank > ahead) [ahead, at] = [bank, arc];
+      }
+      inputs[IN.bank] = here / BANK_NORM;
+      inputs[IN.bank + 1] = ahead / BANK_NORM;
+      inputs[IN.bank + 2] = clamp((track.bankAt(at, track.halfWidth) - ahead) / BANK_STEP, -1, 1);
+    }
   }
 
   // The brain also judges a left/right-mirrored copy of the world and the two opinions are
@@ -508,16 +626,23 @@ class Car {
     // suspension costs it) plus downforce, which grows with speed; turbulent air from a car ahead
     // steals some, and so does crash damage: a smashed nose loses front downforce, a smashed tail rear.
     const { front, side: sideDamage, rear, bent } = this.damage;
-    let mechanical = P.grip / (1 + BENT_GRIP * bent), downforce = P.downforce * forward * forward * (1 - P.dirtyAir * this.draft);
+    // stock cars (spec.damage.aero): a damaged car also loses balance and gets less out of the air around it.
+    // Everything grows with the share of downforce lost, gently at first: a crumpled nose pushes and a torn-up tail
+    // goes loose (mechanical grip at that end), the draft does it less good, dirty air hurts it more, and a slow
+    // puncture from grinding the wall takes rear grip and adds drag for a lap or two
+    const A = P.damage?.aero, lossF = 1 - 1 / (1 + AERO_LOSS * front), lossR = 1 - 1 / (1 + AERO_LOSS * rear), lossAvg = (lossF + lossR) / 2;
+    const draft = A ? this.draft * (1 - A.draft * lossAvg) : this.draft, flat = this.puncture ? this.flatness() : 0;
+    let mechanical = P.grip / (1 + BENT_GRIP * bent), downforce = P.downforce * forward * forward * (1 - P.dirtyAir * (A ? 1 + A.dirty * lossAvg : 1) * this.draft);
     if (track.nascar) {
       mechanical *= loadGrip * surfaceGrip;
       downforce *= surfaceGrip;
     }
-    const frontGrip = mechanical + downforce / (1 + AERO_LOSS * front);
+    const frontGrip = mechanical * (A ? 1 - A.frontGrip * lossF : 1) + downforce / (1 + AERO_LOSS * front);
     // a car on your bumper or your rear quarter takes the air off your spoiler (stock cars: arcade cars have none)
-    const hold = mechanical + (P.spoilerLoss ? downforce * (1 - P.spoilerLoss * this.airOff) : downforce) / (1 + AERO_LOSS * rear);
+    const hold = mechanical * (A ? (1 - A.rearGrip * lossR) * (1 - P.damage.puncture.grip * flat) : 1)
+      + (P.spoilerLoss ? downforce * (1 - P.spoilerLoss * this.airOff) : downforce) / (1 + AERO_LOSS * rear);
     let push;
-    if (throttle >= 0) push = throttle * Math.min(P.traction, P.power / (1 + OVERHEAT * front) / Math.max(forward, 1));
+    if (throttle >= 0) push = throttle * Math.min(P.traction, P.power / (1 + (A ? A.overheat : OVERHEAT) * front) / Math.max(forward, 1));
     else if (forward > 0.3) push = throttle * P.brake;
     else push = forward > -P.reverseMax ? throttle * P.reverse : 0;
 
@@ -584,8 +709,8 @@ class Car {
     this.vx = forward * c - side * s;
     this.vy = forward * s + side * c;
     const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-    const bodywork = 1 + NOSE_DRAG * front + TAIL_DRAG * rear + FLANK_DRAG * sideDamage;
-    const air = 1 - P.draftDrag * this.draft - P.pushDrag * this.pushed + P.sideDrag * this.sideDrafted + (P.twoWideDrag ? P.twoWideDrag * this.twoWide : 0);
+    const bodywork = 1 + (A ? A.nose : NOSE_DRAG) * front + (A ? A.tail : TAIL_DRAG) * rear + FLANK_DRAG * sideDamage + (flat ? P.damage.puncture.drag * flat : 0);
+    const air = 1 - P.draftDrag * draft - P.pushDrag * this.pushed + P.sideDrag * this.sideDrafted + (P.twoWideDrag ? P.twoWideDrag * this.twoWide : 0);
     const drag = P.aero * bodywork * air * speed + P.roll;
     this.vx *= 1 - drag;
     this.vy *= 1 - drag;
@@ -704,8 +829,8 @@ class Car {
       this.pathLen = (step >> 1) + 1;
     }
     if (this.human || this.paced) return;
-    const stalled = this.steps % STALL_WINDOW === 0 && this.progress - this.checkpoint < this.spec.stallMin;
-    if (this.steps % STALL_WINDOW === 0) this.checkpoint = this.progress;
+    const window = this.spec.stallWindow ?? STALL_WINDOW, stalled = this.steps % window === 0 && this.progress - this.checkpoint < this.spec.stallMin;
+    if (this.steps % window === 0) this.checkpoint = this.progress;
     if (stalled || this.progress < -this.gridOffset - 150) {
       this.running = false;
       this.retired = true;

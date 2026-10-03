@@ -14,10 +14,11 @@ function moveCamera(target, snap) {
   const zoom = follow ? Math.min(view.w, view.h) / span : fullZoom();
   const x = follow ? target.x + target.vx * 14 : worldW() / 2, y = follow ? target.y + target.vy * 14 : worldH() / 2;
   const far = Math.hypot(x - view.x, y - view.y) > span;
-  const k = snap || far ? 1 : 0.12;
+  // the same easing per second at any refresh rate (these were tuned per 60 Hz frame)
+  const frames = (view.dt ?? 1 / 60) * 60, k = snap || far ? 1 : 1 - 0.88 ** frames;
   view.x += (x - view.x) * k;
   view.y += (y - view.y) * k;
-  view.zoom += (zoom - view.zoom) * (snap ? 1 : 0.1);
+  view.zoom += (zoom - view.zoom) * (snap ? 1 : 1 - 0.9 ** frames);
 }
 
 function worldTransform(ctx) {
@@ -237,7 +238,8 @@ function drawRays(ctx, car, track) {
     ctx.arc(car.x + dx * len, car.y + dy * len, 2.6 / view.zoom, 0, Math.PI * 2);
     ctx.fill();
   });
-  CAR_RAYS.forEach((_, r) => {
+  if (car.spec.box) drawSectors(ctx, car);
+  else CAR_RAYS.forEach((_, r) => {
     const len = car.carSight[r];
     if (len >= CAR_RAY_LEN) return;
     const dx = c * CAR_COS[r] - s * CAR_SIN[r], dy = s * CAR_COS[r] + c * CAR_SIN[r];
@@ -252,6 +254,52 @@ function drawRays(ctx, car, track) {
     ctx.arc(car.x + dx * len, car.y + dy * len, 3.2 / view.zoom, 0, Math.PI * 2);
     ctx.fill();
   });
+  drawHitWarning(ctx, car);
+}
+
+// Stock cars feel rivals in soft sectors: each car sensor owns the slice of the circle half way to its neighbours,
+// drawn out to the distance that gives its reading and brighter the closer the bodywork, so a car between two
+// directions lights both, as it does in the brain's inputs
+const turnFrom = (a, b) => ((b - a) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+function drawSectors(ctx, car) {
+  const n = CAR_RAYS.length;
+  for (let r = 0; r < n; r++) {
+    const v = car.inputs[IN.cars + r];
+    if (v <= 0.02) continue;
+    const a = CAR_RAYS[r], from = car.angle + a - turnFrom(CAR_RAYS[(r + n - 1) % n], a) / 2, to = car.angle + a + turnFrom(a, CAR_RAYS[(r + 1) % n]) / 2;
+    const reach = Math.min(car.carSight[r], CAR_RAY_LEN);
+    ctx.fillStyle = `rgba(255, 79, 163, ${0.06 + 0.3 * v})`;
+    ctx.beginPath();
+    ctx.moveTo(car.x, car.y);
+    ctx.arc(car.x, car.y, reach, from, to);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255, 79, 163, ${0.35 + 0.6 * v})`;
+    ctx.lineWidth = 1.8 / view.zoom;
+    ctx.beginPath();
+    ctx.arc(car.x, car.y, reach, from, to);
+    ctx.stroke();
+  }
+}
+
+// the time-to-contact input: a dashed line to the car ahead, yellow turning red as the hit gets closer, with the
+// seconds left
+function drawHitWarning(ctx, car) {
+  const v = car.inputs[IN.ttc], other = car.aheadCar;
+  if (!(v > 0) || !other) return;
+  const hue = 55 * (1 - v), seconds = TTC_HORIZON * (1 - Math.sqrt(v));
+  ctx.strokeStyle = `hsla(${hue}, 95%, 58%, ${0.45 + 0.55 * v})`;
+  ctx.lineWidth = (1.5 + 3 * v) / view.zoom;
+  ctx.setLineDash([6 / view.zoom, 4 / view.zoom]);
+  ctx.beginPath();
+  ctx.moveTo(car.x, car.y);
+  ctx.lineTo(other.x, other.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = `700 ${11 / view.zoom}px ui-sans-serif, system-ui`;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = `hsl(${hue}, 95%, 62%)`;
+  ctx.fillText(`hit in ${seconds.toFixed(1)} s`, (car.x + other.x) / 2, (car.y + other.y) / 2 - 8 / view.zoom);
 }
 
 function drawLabel(ctx, car, text, color) {

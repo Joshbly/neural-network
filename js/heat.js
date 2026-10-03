@@ -37,7 +37,9 @@ function airflow(lead, follow) {
   // drag above. Tucked that close it also takes the air off the leader's spoiler: a push in a corner gets
   // the leader loose.
   const bumper = clamp(2 - behind / L, 0, 1) * centred;
-  if (bumper > lead.pushed) lead.pushed = bumper;
+  // a crumpled nose can't seal the leader's wake, so its push is worth less
+  const push = bumper && follow.spec.damage?.aero ? bumper * (1 - follow.spec.damage.aero.push * follow.condition.front) : bumper;
+  if (push > lead.pushed) lead.pushed = push;
   if (bumper > follow.tailing) follow.tailing = bumper;
   if (bumper > lead.airOff) lead.airOff = bumper;
 }

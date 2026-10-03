@@ -22,6 +22,8 @@ let panels, race = null, sketch = null, lastFocus = null, cameraBeforeSketch = '
 let league = null, pros = null, engine = null, progress = null, xrayShown = null, rating = null;
 // everyone's weights at the start of the engine's current round, plus the practice plan it's running
 let live = null;
+// the neuron lab: what train/neurons.js found about each analysed brain's neurons, and the neuron being inspected
+let neuronAtlas = null, pickedNeuron = null;
 // the tracks the engine raced generation g's tournament on (train/evolve.js tourneyTrack)
 const TOURNEY_TRACKS = 8, tourneyTrack = (gen, k) => 5_000_000 + gen * 8 + k;
 // races in a generation's tournament (older saves didn't record it: 24, or fields of 20 for ~24 each)
@@ -150,8 +152,40 @@ function drawSketch() {
   ctx.stroke();
 }
 
+// a car that jumped further than this in one step was moved (a new race, a tow, a restart lining up): no blending
+const BLEND_JUMP = 60;
 function render() {
-  const heat = sketch ? null : activeHeat(), focus = heat && pickFocus(heat);
+  const heat = sketch ? null : activeHeat();
+  if (!heat) return drawScene(null);
+  const rc = heat.control, pace = rc?.paceCar, mix = (a, b) => a + (b - a) * blend;
+  for (const car of heat.cars) {
+    car.simX = car.x;
+    car.simY = car.y;
+    car.simAngle = car.angle;
+    if (car.wasX === undefined || Math.abs(car.x - car.wasX) + Math.abs(car.y - car.wasY) > BLEND_JUMP) continue;
+    car.x = mix(car.wasX, car.x);
+    car.y = mix(car.wasY, car.y);
+    car.angle = car.wasAngle + Math.atan2(Math.sin(car.angle - car.wasAngle), Math.cos(car.angle - car.wasAngle)) * blend;
+  }
+  const was = rc?.wasPace;
+  if (pace && was && Math.abs(pace.x - was.x) + Math.abs(pace.y - was.y) < BLEND_JUMP)
+    rc.paceCar = { x: mix(was.x, pace.x), y: mix(was.y, pace.y), angle: was.angle + Math.atan2(Math.sin(pace.angle - was.angle), Math.cos(pace.angle - was.angle)) * blend };
+  try {
+    drawScene(heat);
+  } finally {
+    for (const car of heat.cars) {
+      car.x = car.simX;
+      car.y = car.simY;
+      car.angle = car.simAngle;
+    }
+    if (rc) rc.paceCar = pace;
+  }
+}
+
+// the brain view changes with each decision (30 times a second at 1x), so it's redrawn at about that rate
+let brainDrawn = { at: 0, car: null }, brainTitle = '';
+function drawScene(heat) {
+  const focus = heat && pickFocus(heat);
   if (focus) lastFocus = focus;
   moveCamera(focus, false);
   drawGround(ctx);
@@ -178,15 +212,20 @@ function render() {
       drawLabel(ctx, car, nameOf(car), car === focus || car.human ? '#fff' : 'rgba(220, 230, 245, 0.5)');
   if (view.mode === 'follow') drawMinimap(ctx, track, heat.cars, focus, colorOf);
 
-  if (thinker) {
+  // a held neuron stays with the car it was picked on: let go when the brain view moves to another
+  if (pickedNeuron && pickedNeuron.brain !== thinker?.brain) dropNeuron();
+  const now = performance.now();
+  if (thinker && (now - brainDrawn.at >= 30 || brainDrawn.car !== thinker)) {
+    brainDrawn = { at: now, car: thinker };
     const marks = new Map();
     if (xrayShown?.car === thinker) {
       xrayShown.steerBy.forEach(e => marks.set(e.i, '#38e1ff'));
       xrayShown.gasBy.forEach(e => marks.has(e.i) || marks.set(e.i, e.gas > 0 ? '#4dff9a' : '#ff4d4d'));
     }
-    drawBrain(panels.brain.ctx, panels.brain.w, panels.brain.h, thinker, marks);
+    drawBrain(panels.brain.ctx, panels.brain.w, panels.brain.h, thinker, marks, pickedNeuron);
     const sp = thinker.species, lineage = sp.parent ? ` · from ${sp.parent}, gen ${sp.born}` : sp.frozen ? ' · original, frozen' : '';
-    $('#brain-title').textContent = `${race ? `${nameOf(thinker)}, nearest rival` : `Car ${nameOf(thinker)}`} · ${describe(sp)}${lineage}`;
+    const title = `${race ? `${nameOf(thinker)}, nearest rival` : `Car ${nameOf(thinker)}`} · ${describe(sp)}${lineage}`;
+    if (title !== brainTitle) $('#brain-title').textContent = brainTitle = title;
   }
 }
 
@@ -354,6 +393,7 @@ function adoptLeague(data, slot) {
     rating = r && { ...r, slot };
     drawLeague();
   });
+  getJson(slotUrl(slot, 'neurons.json')).then(atlas => neuronAtlas = atlas);
   if (switched) {
     state.away = null;
     toast(`Loaded <b>${esc(slotName(slot))}</b>, generation ${league.generation}.`);
@@ -479,6 +519,7 @@ function updateHud() {
     xrayShown = { car: thinker, ...xray(thinker) };
     $('#xray').innerHTML = xrayHtml(xrayShown);
   }
+  if (pickedNeuron) $('#neuron-live').textContent = pickedNeuron.brain.acts[pickedNeuron.l][pickedNeuron.j].toFixed(2);
 
   const car = race ? race.you : focus;
   if (car) $('#car-stats').innerHTML = [
@@ -488,7 +529,7 @@ function updateHud() {
     ['wall hits', car.wallHits],
     ...track.nascar ? [
       ['banking · surface', `${Math.round(track.bankAt(car.lastArc, track.lateralAt(car.x, car.y)) * 180 / Math.PI)}° · ${SURFACE_NAME[car.surface]}`],
-      ['flags', car.parked ? 'parked' : car.penalty ? 'black: stop-and-go' : car.blueFlag ? 'blue-yellow' : car.paced ? 'following the pace car' : '—'],
+      ['flags', car.parked ? 'parked' : car.penalty ? 'black: stop-and-go' : car.blueFlag ? 'blue-yellow' : car.paced ? 'following the pace car' : car.puncture ? 'slow puncture' : '—'],
     ] : [],
   ].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
 }
@@ -677,15 +718,16 @@ async function refreshOfficial(slot, gen) {
 
 // a practice race exactly as one of the learning brain's copies ran it: weights from its seed, rivals by name
 function practicePlan(prev, p, which) {
-  const roster = p.practice.pros, same = prev?.gen === p.generation && prev?.round === p.round;
+  const roster = p.practice.pros;
   if (!roster[0]?.scenarios) return null;
   const shows = sc => which === 'duels' ? sc.duel : which === 'practice' ? !sc.duel : sc.kind === 'race';
   const lineup = pro => pro.scenarios.map((sc, k) => ({ sc, k })).filter(({ sc }) => shows(sc));
-  // the brain you clicked, or each brain in turn through all of its races
+  // the brain you clicked, or each brain in turn through all of its races. A watched race often outlasts a
+  // training round (about a minute on Modal), so the turn carries on into the new round rather than starting over.
   const picked = roster.find(x => x.name === state.picked), last = roster.findIndex(x => x.name === prev?.learner);
-  const stay = same && last >= 0 && prev.j + 1 < lineup(roster[last]).length;
-  const pro = picked ?? (stay ? roster[last] : roster[same && last >= 0 ? (last + 1) % roster.length : 0]);
-  const races = lineup(pro), j = same && prev.learner === pro.name ? (prev.j + 1) % races.length : 0, { sc } = races[j];
+  const stay = last >= 0 && prev.j + 1 < lineup(roster[last]).length;
+  const pro = picked ?? (stay ? roster[last] : roster[last >= 0 ? (last + 1) % roster.length : 0]);
+  const races = lineup(pro), j = prev?.learner === pro.name ? (prev.j + 1) % races.length : 0, { sc } = races[j];
   const ai = roster.indexOf(pro), learner = live.byName.get(pro.name), copies = 2 * p.practice.pairs;
   const copy = (pros?.count ?? 0) % copies, sign = copy & 1 ? -1 : 1;
   const me = { weights: perturbGenes(learner.weights, esSeed(p.generation, p.round, ai, copy >> 1), sign * learner.sigma), species: learner.style };
@@ -917,6 +959,75 @@ $('#tower-list').addEventListener('pointerdown', e => {
   updateHud();
 });
 
+// ---------- the neuron lab: click a neuron in the brain view to see what it does, and force it ----------
+
+const thinkerNow = () => { const heat = activeHeat(); return race ? nearestRival(heat, race.you) : pickFocus(heat); };
+// what train/neurons.js found about this neuron, if it analysed this brain (same name, same shape)
+function neuronFacts(name, brain, l, j) {
+  const entry = neuronAtlas?.brains?.[name];
+  if (entry?.layers.join() !== brain.layers.join()) return null;
+  return { entry, nr: entry.neurons.find(x => x.l === l && x.j === j) };
+}
+
+function pickNeuron(car, l, j) {
+  dropNeuron();
+  pickedNeuron = { brain: car.brain, name: car.species?.name, l, j };
+  showNeuron();
+}
+
+function dropNeuron() {
+  if (pickedNeuron) pickedNeuron.brain.held = null;
+  pickedNeuron = null;
+  $('#neuron').hidden = true;
+}
+
+function showNeuron() {
+  const { brain, name, l, j } = pickedNeuron, facts = neuronFacts(name, brain, l, j), held = brain.held?.[0]?.[2];
+  const pct = v => `${Math.round(v * 100)}%`;
+  const hands = ([s, g]) => `steer ${s > 0 ? '▶' : '◀'}${Math.abs(s).toFixed(2)} gas ${g >= 0 ? '+' : '−'}${Math.abs(g).toFixed(2)}`;
+  $('#neuron').hidden = false;
+  $('#neuron-name').textContent = `${name} · layer ${l} of ${brain.layers.length - 2} · neuron ${j + 1}`;
+  if (facts?.nr) {
+    const { entry, nr } = facts, base = entry.intact, cut = nr.lesion;
+    $('#neuron-label').textContent = nr.label;
+    $('#neuron-facts').innerHTML = [
+      nr.concepts.length && `<em>reacts to</em> ${nr.concepts.map(([c, d]) => `${esc(c)} ${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}σ`).join(', ')}`,
+      nr.inputs.length && `<em>follows</em> ${nr.inputs.map(([i, r]) => `${esc(neuronAtlas.inputs[i])} ${r.toFixed(2)}`).join(', ')}`,
+      `<em>forced on</em> ${hands(nr.plus)} <em>· off</em> ${hands(nr.minus)}`,
+      cut && `<em>silenced for ${neuronAtlas.races} races</em> place ${base.place.toFixed(2)}→${cut.place.toFixed(2)} · wins ${base.wins}→${cut.wins} · finished ${pct(base.finished)}→${pct(cut.finished)}${nr.placebo ? ' (placebo)' : ''}`,
+      `<em>analysed at generation ${entry.analysedAt}</em>`,
+    ].filter(Boolean).join('<br>');
+  } else {
+    $('#neuron-label').textContent = 'Not analysed yet';
+    $('#neuron-facts').innerHTML = `<em>node train/neurons.js ${esc(league?.slot ?? '')} ${esc(name)}</em> finds out what it does. You can still force it and watch.`;
+    // the analysis may have finished since the save loaded
+    const asked = pickedNeuron;
+    if (league && !asked.refetched) getJson(slotUrl(league.slot, 'neurons.json')).then(atlas => {
+      asked.refetched = true;
+      if (!atlas) return;
+      neuronAtlas = atlas;
+      if (pickedNeuron === asked && neuronFacts(name, brain, l, j)) showNeuron();
+    });
+  }
+  document.querySelectorAll('.neuron-hold button').forEach(b => b.classList.toggle('on', held !== undefined && b.dataset.hold === (held === 1 ? '1' : held === -1 ? '-1' : 'avg')));
+}
+
+$('#brain').addEventListener('pointerdown', e => {
+  const thinker = thinkerNow(), r = e.currentTarget.getBoundingClientRect(), hit = neuronAt(e.clientX - r.left, e.clientY - r.top);
+  if (thinker?.brain && hit) pickNeuron(thinker, hit.l, hit.j);
+});
+$('#brain').addEventListener('pointermove', e => {
+  const thinker = thinkerNow(), r = e.currentTarget.getBoundingClientRect(), hit = neuronAt(e.clientX - r.left, e.clientY - r.top);
+  const label = hit && thinker?.brain && neuronFacts(thinker.species?.name, thinker.brain, hit.l, hit.j)?.nr?.label;
+  e.currentTarget.title = hit ? `Layer ${hit.l} · neuron ${hit.j + 1}${label ? `: ${label}` : ''}` : '';
+});
+document.querySelectorAll('.neuron-hold button').forEach(b => b.onclick = () => {
+  const { brain, name, l, j } = pickedNeuron, hold = b.dataset.hold;
+  brain.held = hold === '' ? null : [[l, j, hold === 'avg' ? neuronFacts(name, brain, l, j)?.nr?.mean ?? 0 : +hold]];
+  showNeuron();
+});
+$('#neuron-close').onclick = dropNeuron;
+
 // ---------- controls ----------
 
 RACE_LENGTHS.forEach(laps => {
@@ -1081,15 +1192,31 @@ addEventListener('resize', layout);
 
 // ---------- main loop ----------
 
+// The screen runs between simulation steps: every car is drawn part of the way from where it was a step ago to
+// where it is now, by how far the clock has got toward the next step, so motion is even at any refresh rate and
+// any speed (a 120 Hz screen at 1x would otherwise move the cars every other frame). Only the drawing blends;
+// the simulation never sees it.
+let blend = 1;
+function remember(heat) {
+  for (const car of heat.cars) {
+    car.wasX = car.x;
+    car.wasY = car.y;
+    car.wasAngle = car.angle;
+  }
+  // race control builds a new pace car every step, so the last one is where it was
+  if (heat.control) heat.control.wasPace = heat.control.paceCar;
+}
+
 let last = performance.now(), acc = 0, frameNo = 0;
 function loop(now) {
   const dt = Math.min(0.1, (now - last) / 1000), deadline = now + 14;
   last = now;
+  view.dt = dt;
   const atSpeed = tick => {
-    if (state.speed === Infinity) do tick(); while (performance.now() < deadline);
+    if (state.speed === Infinity) do remember(activeHeat()), tick(); while (performance.now() < deadline);
     else {
       acc += dt * 60 * state.speed;
-      while (acc >= 1 && performance.now() < deadline) tick(), acc--;
+      while (acc >= 1 && performance.now() < deadline) remember(activeHeat()), tick(), acc--;
       acc = Math.min(acc, 2);
     }
   };
@@ -1099,8 +1226,9 @@ function loop(now) {
     else if (!pros.nextAt) atSpeed(prosTick);
   } else if (state.mode === 'race') {
     acc += dt * 60;
-    while (acc >= 1 && state.mode === 'race') raceTick(), acc--;
+    while (acc >= 1 && state.mode === 'race') remember(race.heat), raceTick(), acc--;
   }
+  blend = state.speed === Infinity && state.mode !== 'race' ? 1 : Math.min(1, acc);
   render();
   if (frameNo++ % 8 === 0 && !sketch) updateHud();
   requestAnimationFrame(loop);

@@ -31,7 +31,7 @@ image = (
 # A helper lives only while the main machine's heartbeat does: if the engine is interrupted or stopped,
 # the helper shuts itself down instead of billing for nothing. No retries: a restarted helper would have a
 # new address the engine never learns.
-@app.function(image=image, cpu=CORES, memory=24576, timeout=5 * 3600)
+@app.function(image=image, cpu=CORES, memory=24576, timeout=9 * 3600)
 def helper(run: str, index: int, token: str, deadline: float):
     server = subprocess.Popen(["node", "/app/train/worker-server.js", "--port", "9000", "--threads", str(HELPER_THREADS), "--token", token])
     with modal.forward(9000, unencrypted=True) as tunnel:
@@ -47,7 +47,7 @@ def helper(run: str, index: int, token: str, deadline: float):
     server.terminate()
 
 
-@app.function(image=image, cpu=CORES, memory=24576, timeout=5 * 3600, volumes={"/vol": volume},
+@app.function(image=image, cpu=CORES, memory=24576, timeout=9 * 3600, volumes={"/vol": volume},
               retries=modal.Retries(max_retries=2, initial_delay=10.0))
 def train(slot: str, deadline: float, helpers: int):
     # The main machine starts its own helpers, so they don't depend on the laptop that launched the run.

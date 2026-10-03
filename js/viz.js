@@ -8,7 +8,8 @@ const INPUTS = [
   ...LOOKAHEAD.map(d => [`road +${d}`, '#ffb36b']),
   ['draft', '#9ecbff'], ['last steer', '#c9d4e5'], ['last gas', '#c9d4e5'], ['position', '#ffd166'],
   ['nose dmg', '#ff8a7a'], ['tail dmg', '#ff8a7a'],
-  ['track edge', '#ffd98a'], ['paved edge', '#ffd98a'],
+  ['track edge', '#ffd98a'], ['paved edge', '#ffd98a'], ['hit in ▲', '#ff9fd0'],
+  ['banking', '#ffd98a'], ['bank ahead', '#ffd98a'], ['top steeper', '#ffd98a'],
 ];
 const CYAN = [56, 225, 255], PINK = [255, 79, 163], IDLE = [28, 34, 48];
 
@@ -49,8 +50,24 @@ function xrayHtml({ steer, gas, steerBy, gasBy }) {
     + row(`${gas < -0.05 ? 'brake' : 'gas'} ${Math.abs(gas).toFixed(2)}`, gasBy, 'gas', '▲', '▼');
 }
 
-// marks: input index → colour, ringed in the drawing (the X-ray's top inputs)
-function drawBrain(ctx, w, h, car, marks = new Map()) {
+// where the last drawing put every neuron, for clicking on them
+let brainLayout = null;
+function neuronAt(x, y) {
+  if (!brainLayout) return null;
+  const { nodes, gaps } = brainLayout;
+  let best = null, bestDist = Infinity;
+  for (let l = 1; l < nodes.length - 1; l++) {
+    if (Math.abs(x - nodes[l][0][0]) > 10) continue;
+    nodes[l].forEach(([, ny], j) => {
+      const d = Math.abs(y - ny);
+      if (d < Math.max(5, gaps[l] / 2) && d < bestDist) [best, bestDist] = [{ l, j }, d];
+    });
+  }
+  return best;
+}
+
+// marks: input index → colour, ringed in the drawing (the X-ray's top inputs); picked: the neuron being inspected
+function drawBrain(ctx, w, h, car, marks = new Map(), picked = null) {
   const { brain } = car;
   ctx.clearRect(0, 0, w, h);
   if (!brain) return;
@@ -62,24 +79,34 @@ function drawBrain(ctx, w, h, car, marks = new Map()) {
   const radii = gaps.map(g => Math.max(1.2, Math.min(7, g * 0.36)));
   const nodes = layers.map((n, l) => Array.from({ length: n }, (_, i) =>
     [padL + l * (w - padL - padR) / (layers.length - 1), h / 2 + (i - (n - 1) / 2) * gaps[l]]));
+  brainLayout = { nodes, gaps };
 
-  // edges glow with the signal actually flowing through them right now
+  // edges glow with the signal actually flowing through them right now. Thousands of them: each is filed under
+  // its colour, opacity and width (rounded to steps too fine to see) and every group is stroked as one path
   ctx.lineCap = 'round';
+  const groups = new Map();
   for (let l = 1; l < layers.length; l++)
     for (let j = 0; j < layers[l]; j++)
       for (let i = 0; i < layers[l - 1]; i++) {
         const weight = brain.weight(l, i, j), signal = weight * brain.acts[l - 1][i];
         // the pros' wide nets have thousands of edges; only the ones carrying real signal get drawn
         if (huge && Math.abs(signal) < 0.12) continue;
-        const [r, g, b] = signal >= 0 ? CYAN : PINK;
         // the wide net has ~2,000 edges; thinner lines keep its active pathways readable
-        ctx.strokeStyle = `rgba(${r},${g},${b},${Math.min(0.9, (dense ? 0.012 : 0.025) + Math.abs(signal) * (dense ? 0.2 : 0.32))})`;
-        ctx.lineWidth = Math.min(dense ? 2 : 3.2, (dense ? 0.2 : 0.3) + Math.abs(weight) * (dense ? 0.4 : 0.7));
-        ctx.beginPath();
-        ctx.moveTo(...nodes[l - 1][i]);
-        ctx.lineTo(...nodes[l][j]);
-        ctx.stroke();
+        const alpha = Math.round(Math.min(0.9, (dense ? 0.012 : 0.025) + Math.abs(signal) * (dense ? 0.2 : 0.32)) * 50);
+        const width = Math.round(Math.min(dense ? 2 : 3.2, (dense ? 0.2 : 0.3) + Math.abs(weight) * (dense ? 0.4 : 0.7)) * 5);
+        const key = (signal >= 0 ? 0 : 100000) + alpha * 100 + width;
+        let path = groups.get(key);
+        if (!path) groups.set(key, path = new Path2D());
+        const [x0, y0] = nodes[l - 1][i], [x1, y1] = nodes[l][j];
+        path.moveTo(x0, y0);
+        path.lineTo(x1, y1);
       }
+  for (const [key, path] of groups) {
+    const [r, g, b] = key >= 100000 ? PINK : CYAN, rest = key % 100000;
+    ctx.strokeStyle = `rgba(${r},${g},${b},${Math.max(1, Math.floor(rest / 100)) / 50})`;
+    ctx.lineWidth = Math.max(1, rest % 100) / 5;
+    ctx.stroke(path);
+  }
 
   nodes.forEach((layer, l) => layer.forEach(([x, y], i) => {
     const v = brain.acts[l][i];
@@ -94,6 +121,16 @@ function drawBrain(ctx, w, h, car, marks = new Map()) {
     ctx.lineWidth = 1;
     ctx.stroke();
   }));
+  const ring = ({ l, j }, color, gap) => {
+    const [x, y] = nodes[l][j];
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, radii[l] + gap, 0, Math.PI * 2);
+    ctx.stroke();
+  };
+  if (picked && picked.l < layers.length - 1 && picked.j < layers[picked.l]) ring(picked, '#fff', 3);
+  for (const [l, j] of brain.held ?? []) ring({ l, j }, '#ffd166', 6);
 
   ctx.font = '500 9.5px ui-monospace, SFMono-Regular, Menlo, monospace';
   ctx.textAlign = 'right';

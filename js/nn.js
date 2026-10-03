@@ -47,6 +47,8 @@ class Brain {
     for (let l = 2; l < layers.length; l++) this.offsets[l] = this.offsets[l - 1] + layers[l - 1] * (layers[l - 2] + 1);
     this.pair = new Float32Array(4);
     this.epoch = -1;
+    // the neuron lab: [layer, neuron, value] held fixed in the real-world pass (the mirror pass runs as usual)
+    this.held = null;
   }
 
   static random(layers) {
@@ -54,7 +56,7 @@ class Brain {
   }
 
   think(inputs) {
-    if (!Brain.simd) return this.thinkJS(inputs);
+    if (!Brain.simd || this.held) return this.thinkJS(inputs, this.held);
     if (this.epoch !== NN.epoch) this.upload();
     const n = this.layers[0];
     this.acts[0].set(inputs.length > n ? inputs.subarray(0, n) : inputs);
@@ -66,11 +68,11 @@ class Brain {
   // think(mirrored) followed by think(inputs) would
   thinkPair(mirrored, inputs) {
     const pair = this.pair;
-    if (!Brain.simd) {
+    if (!Brain.simd || this.held) {
       const flipped = this.thinkJS(mirrored);
       pair[0] = flipped[0];
       pair[1] = flipped[1];
-      const out = this.thinkJS(inputs);
+      const out = this.thinkJS(inputs, this.held);
       pair[2] = out[0];
       pair[3] = out[1];
       return pair;
@@ -135,7 +137,7 @@ class Brain {
     this.epoch = -1;
   }
 
-  thinkJS(inputs) {
+  thinkJS(inputs, held) {
     const g = this.genes, acts = this.acts;
     // brains from before newer inputs were appended read just the inputs they know
     acts[0].set(inputs.length > acts[0].length ? inputs.subarray(0, acts[0].length) : inputs);
@@ -147,6 +149,7 @@ class Brain {
         for (let i = 0; i < src.length; i++) sum += src[i] * g[k++];
         dst[j] = squash(sum);
       }
+      if (held) for (const [hl, j, v] of held) if (hl === l) dst[j] = v;
     }
     return acts[acts.length - 1];
   }

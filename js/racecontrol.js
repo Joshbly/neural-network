@@ -23,7 +23,7 @@ const RC = {
   stoppedFor: 120,     // a car stopped this long brings out the yellow
   towAfter: 600,       // and one stopped this long is towed off, out of the race
   redWindow: 300, redCars: 4, redHold: 240,
-  parkDamage: 1.25,    // downforce lost front + rear (each 0..1) that parks a car
+  parkDamage: 1,       // downforce lost front + rear (each 0..1) that parks a car: half of it gone, on average
   zone: 0.06,          // restart zone: this share of the lap before the line
   cautionLaps: 1, maxCautionLaps: 3,
   minCautionLaps: 5,   // shorter races stay green
@@ -177,14 +177,18 @@ class RaceControl {
       }
       // a training caution just reformed the field: this step's running order is out of date
       if (this.cautionAt === step) return;
-      // yellow line at the plate tracks: passing with all four wheels below it is a black flag
+      // yellow line at the plate tracks: passing with all four wheels below it, on the paved apron, is a black flag.
+      // Only a real pass counts: getting by a car still running at racing speed, not one that wrecked, spun or
+      // slowed. The grass beyond the apron gains nobody anything, so a car sliding through it isn't judged.
       if (track.plate && step % 30 === 0) {
-        const rank = new Map(racing.map((car, i) => [car, i]));
+        const rank = new Map(racing.map((car, i) => [car, i])), before = this.lastRank;
         for (const car of racing) {
-          const below = track.lateralAt(car.x, car.y) < -hw - car.spec.wid / 2;
+          const lateral = track.lateralAt(car.x, car.y), below = lateral < -hw - car.spec.wid / 2 && lateral >= -hw - track.apron;
           if (below) car.belowLine += 30;
-          const before = this.lastRank?.get(car);
-          if (below && before !== undefined && rank.get(car) < before && !car.penalty) this.blackFlag(car, step, 'passed below the yellow line');
+          if (!below || car.penalty || !before?.has(car)) continue;
+          const passed = racing.some(other => other !== car && before.get(other) < before.get(car) && rank.get(other) > rank.get(car)
+            && dhypot(other.vx, other.vy) > track.refSpeed * 0.5);
+          if (passed) this.blackFlag(car, step, 'passed below the yellow line');
         }
         this.lastRank = rank;
       }

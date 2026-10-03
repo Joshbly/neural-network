@@ -8,7 +8,7 @@ const E = new Function(`${source}
 return { Brain, Track, OvalTrack, NASCAR_TRACKS, SURFACE, MPH_PER_SPEED, Heat, Car, RaceControl, IN, mulberry32, geneCount, INPUT_COUNT,
   HALF_WIDTH, REAR_CAR_RAYS, clamp, G, NORMAL, NASCAR_670, NASCAR_PLATE, specFor, stockSpec, steerLock,
   SUPERSPEEDWAYS, YARDSTICK_OVALS, practiceOvals, seasonOvals, lapsFor, pickFrom, OTHER_OVALS, RC,
-  noiseVector, perturbGenes, esSeed, quantizeGenes, scenarioOptions };`)();
+  noiseVector, perturbGenes, esSeed, quantizeGenes, scenarioOptions, WALL_RAY_DEG, CAR_RAY_DEG, LOOKAHEAD, DECIDE_EVERY };`)();
 
 // deterministic Gaussian noise from a seed (js/replay.js, shared with the app so it can rebuild any copy)
 const noise = E.noiseVector, perturb = E.perturbGenes;

@@ -108,8 +108,9 @@ function pickOpponents(pool, ratingOf, count, rng) {
 // laggard is from that family itself (then the count doesn't change); without that, one line takes every
 // seat within a few dozen generations and the design stops exploring. The parent must clearly beat the
 // laggard. fromTop: any of the eligible top half, which keeps several strong branches going, not just the best.
-function pickParent(members, laggard, score, { margin, fromTop }, rng) {
-  const cap = Math.ceil(members.length / 2), count = founder => members.filter(a => a.founder === founder).length;
+// seats: a tighter cap for a while (a young save keeping many lines alive), never looser than half.
+function pickParent(members, laggard, score, { margin, fromTop, seats }, rng) {
+  const cap = Math.min(Math.ceil(members.length / 2), seats ?? Infinity), count = founder => members.filter(a => a.founder === founder).length;
   const eligible = members.filter(a => a !== laggard && score(a) - score(laggard) >= margin && (a.founder === laggard.founder || count(a.founder) < cap));
   if (!eligible.length) return null;
   const pool = fromTop ? eligible.slice(0, Math.ceil(eligible.length / 2)) : eligible.slice(0, 1);

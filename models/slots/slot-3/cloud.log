@@ -1,0 +1,21 @@
+2026-10-03T01:41:17.919Z start: fc-01M3ZPREBEB3YDCK9726RDV2Y0
+2026-10-03T02:00:05.911Z start: fc-01M3ZQTVYF2ATQHC5HXHRANJJJ
+2026-10-03T02:40:40.261Z start: fc-01M3ZT557YNNW6HWN53C3AHCV3
+2026-10-03T03:02:13.098Z start: fc-01M3ZVCKT0QHSX7Q62K587P4GR
+2026-10-03T03:06:38.990Z start: fc-01M3ZVMQD26ADAS343RAXGVYEG
+2026-10-03T05:03:27.365Z start: fc-01M402AKK12W8YKXT8WCCZBEVJ
+2026-10-03T10:09:50.708Z start: Traceback (most recent call last):
+  File "/Users/josh-profound/neural-network/train/modal_launch.py", line 66, in <module>
+    {"start": lambda: start(a.slot, a.hours, a.helpers), "status": lambda: status(a.call), "stop": stop}[a.action]()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/josh-profound/neural-network/train/modal_launch.py", line 66, in <lambda>
+    {"start": lambda: start(a.slot, a.hours, a.helpers), "status": lambda: status(a.call), "stop": stop}[a.action]()
+                      ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/josh-profound/neural-network/train/modal_launch.py", line 24, in start
+    subprocess.run([MODAL, "deploy", str(ROOT / "train" / "modal_train.py")], check=True, capture_output=True)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/josh-profound/.local/share/uv/python/cpython-3.13.15-macos-aarch64-none/lib/python3.13/subprocess.py", line 577, in run
+    raise CalledProcessError(retcode, process.args,
+                             output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['/Users/josh-profound/neural-network/.venv/bin/modal', 'deploy', '/Users/josh-profound/neural-network/train/modal_train.py']' returned non-zero exit status 1.
+2026-10-03T15:15:30.074Z start: fc-01M415B9KCH83EMX8ZS3BM8DRR

@@ -218,8 +218,16 @@ function load() {
   const st = JSON.parse(fs.readFileSync(STATE, 'utf8'));
   for (const list of [st.population, st.hall, st.yardstick]) for (const a of list || []) a.genes = Float32Array.from(a.genes);
   // inputs added since a brain was born reach it with zero weights: it drives exactly as before until training
-  // finds a use for them (frozen past champions stay as they were)
-  for (const a of st.population) Object.assign(a, widen(a.layers, a.genes));
+  // finds a use for them (frozen past champions stay as they were). The optimizer's memory carries on across a
+  // restart, so the first step after one isn't a full-size jolt to every weight; a widened brain starts it afresh.
+  for (const a of st.population) {
+    const before = a.genes.length;
+    Object.assign(a, widen(a.layers, a.genes));
+    if (a.m && a.genes.length === before) {
+      a.m = Float32Array.from(a.m);
+      a.v = Float32Array.from(a.v);
+    } else Object.assign(a, { m: null, v: null, t: 0 });
+  }
   return st;
 }
 
@@ -239,10 +247,12 @@ function found() {
   const meta = META;
   const start = { started: new Date().toISOString(), generation: 0, clones: {}, history: [] };
   if (meta.start === 'scratch') {
-    // Twenty random brains, four independent ones per design. All they start with is the standard
-    // initialisation: output weights near zero and a slight throttle bias, so every car moves and can be
-    // measured. Learning from zero gets a bigger step size than refining (selection keeps tuning it).
-    return { ...start, population: Object.entries(DESIGNS).flatMap(([design, hidden], d) => range(1, 4).map(k => {
+    // Random brains, independent ones per design: four of each unless the save names its own seats (meta.seats,
+    // up to 10 a design). All they start with is the standard initialisation: output weights near zero and a
+    // slight throttle bias, so every car moves and can be measured. Learning from zero gets a bigger step size
+    // than refining (selection keeps tuning it).
+    const seats = meta.seats ?? Object.fromEntries(Object.keys(DESIGNS).map(design => [design, 4]));
+    return { ...start, population: Object.entries(DESIGNS).flatMap(([design, hidden], d) => range(1, seats[design] ?? 0).map(k => {
       const layers = [E.INPUT_COUNT, ...hidden, 2];
       return { layers, genes: initParams(layers, (meta.seed ?? 1) * 1000 + d * 10 + k), name: `${design}${k}`, founder: `${design}${k}`,
         label: `random ${design}${k}`, species: design, parent: null, born: 0, lr: 0.02, sigma: 0.04, wins: 0, races: 0 };
@@ -265,7 +275,10 @@ const packed = st => pack(st.population);
 function save(st) {
   const population = packed(st), last = st.history.at(-1);
   writeJson(path.join(GENS, `gen-${String(st.generation).padStart(4, '0')}.json`), { generation: st.generation, population });
-  writeJson(STATE, { ...st, population, hall: pack(st.hall), yardstick: pack(st.yardstick) });
+  // the save keeps each brain's optimizer memory too (6 significant figures is plenty); the published files don't
+  const memory = xs => Array.from(xs, x => +x.toPrecision(6));
+  const withMemory = population.map((p, i) => st.population[i].m ? { ...p, m: memory(st.population[i].m), v: memory(st.population[i].v), t: st.population[i].t } : p);
+  writeJson(STATE, { ...st, population: withMemory, hall: pack(st.hall), yardstick: pack(st.yardstick) });
   const rated = st.history.findLast(e => e.rating)?.rating;
   writeJson(SUMMARY, { generation: st.generation, champion: last.champion, rating: rated?.champion, updated: last.at,
     designs: Object.fromEntries(Object.entries(last.species).map(([d, s]) => [d, round(1 - s.avgPlace, 2)])) });
@@ -541,13 +554,17 @@ async function rate(st, gen, entry) {
 
 // ---- selection: within a species, a clear laggard is replaced by a mutated copy of a strong sibling ----
 function select(st, entry, rng) {
+  // a founding period (cfg.founding generations): early results are mostly luck, so every line gets time to learn
+  // to drive before anyone is judged; after it, cfg.familySeats caps each family until cfg.familySeatsUntil
+  if (entry.gen < (cfg.founding ?? 0)) return;
+  const seats = cfg.familySeats && entry.gen < (cfg.familySeatsUntil ?? Infinity) ? cfg.familySeats : undefined;
   const score = a => mean(a.recentPoints?.length ? a.recentPoints : [a.last.points]);
   for (const sp of new Set(st.population.map(a => a.species))) {
     const members = st.population.filter(a => a.species === sp).sort((x, y) => score(y) - score(x));
     const worst = members.at(-1);
     if (entry.gen - worst.born < cfg.settle) continue;
     const parent = cfg.familyCap
-      ? pickParent(members, worst, score, { margin: cfg.margin, fromTop: cfg.pickFromTop }, rng)
+      ? pickParent(members, worst, score, { margin: cfg.margin, fromTop: cfg.pickFromTop, seats }, rng)
       : score(members[0]) - score(worst) >= cfg.margin ? members[0] : null;
     if (!parent) continue;
     const n = st.clones[parent.founder] = (st.clones[parent.founder] || 1) + 1, name = `${parent.founder}·${n}`;
