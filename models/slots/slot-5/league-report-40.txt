@@ -1,0 +1,43 @@
+NASCAR · E vs F, generation 40: E vs F
+
+1. tournaments: race points per race (wins)
+  gen 0: E 0.140 (17) · F 0.034 (7) · F-E -0.107
+  gen 5: E 0.049 (6) · F 0.150 (18) · F-E +0.101
+  gen 10: E 0.102 (11) · F 0.085 (13) · F-E -0.018
+  gen 15: E 0.105 (13) · F 0.067 (11) · F-E -0.038
+  gen 20: E 0.137 (15) · F 0.069 (9) · F-E -0.068
+  gen 25: E 0.103 (10) · F 0.097 (14) · F-E -0.007
+  gen 30: E 0.095 (10) · F 0.094 (14) · F-E -0.001
+  gen 35: E 0.072 (8) · F 0.111 (16) · F-E +0.039
+  gen 36: E 0.105 (15) · F 0.097 (9) · F-E -0.008
+  gen 37: E 0.059 (8) · F 0.144 (16) · F-E +0.086
+  gen 38: E 0.072 (10) · F 0.115 (14) · F-E +0.043
+  gen 39: E 0.088 (10) · F 0.117 (14) · F-E +0.029
+  gen 40: E 0.084 (13) · F 0.107 (11) · F-E +0.024
+  last 5: E 0.082 · F 0.116 · wins E 56 F 64
+
+2. rating ladder (best of each design):
+  gen 0: E E6@0 1000±0 · F F10@0 1019±29
+  gen 5: E E8@5 1162±27 · F F3@5 1280±12
+  gen 10: E E7@10 1266±26 · F F9@10 1289±13
+  gen 15: E E3@15 1232±13 · F F3@15 1260±25
+  gen 20: E E2@20 1328±14 · F F5@20 1315±25
+  gen 25: E E9@25 1288±24 · F F8@25 1307±15
+  gen 30: E E9@30 1317±24 · F F8@30 1289±16
+  gen 35: E E9·3@35 1248±24 · F F8·3@35 1278±19
+  gen 40: E E9·3@40 1248±24 · F F5@40 1300±24
+
+3. evaluation: 192 races of the 20 brains
+  points per race: E 0.027 · F 0.073 · F-E +0.046 ± 0.013 (3.7 standard errors) · sets 0.030/0.070 and 0.024/0.076
+  best E E9·3 0.135 vs best F F5 0.147: F ahead in 49% of the races
+  finished E 37% F 46% · wrecked or parked E 63% F 54% · downforce lost E 22% F 22%
+
+4. senses (rank among the brain's 52; 1 moves the hands most):
+  E E9·3: pace #40 · drift #46 · closing ahead #20 · closing behind #37 · hit-in #45
+  F F5: pace #39 · drift #45 · closing ahead #5 · closing behind #21 · hit-in #49
+
+5. room: independent directions used (90% of the activity), of the neurons there
+  E E9·3: layer 1 14 of 128 · layer 2 21 of 128
+  F F5: lane block 9 of 160 · traffic block 9 of 48 · mixing layer 17 of 48
+
+VERDICT: F wins (leads by 3.7 standard errors, best rated 1300 vs 1248)

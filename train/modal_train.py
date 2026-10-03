@@ -70,6 +70,8 @@ def train(slot: str, deadline: float, helpers: int, until: int = 0):
         command = ["node", "/app/train/evolve.js", "--dir", f"/vol/slots/{slot}", "--workers", str(WORKERS), "--token", token, "--remote-file", str(remotes_file)]
         if addresses:
             command += ["--remote", ",".join(addresses)]
+        if until:
+            command += ["--until", str(until)]
         engine = subprocess.Popen(command)
         # commit often: the laptop sees each generation, and a preempted run resumes from the last one
         while engine.poll() is None and time.time() < deadline:
@@ -87,7 +89,8 @@ def train(slot: str, deadline: float, helpers: int, until: int = 0):
             engine.terminate()
         engine.wait()
         volume.commit()
-        if time.time() < deadline:
+        # reaching the last generation it was asked for is a finish, not a failure to retry
+        if time.time() < deadline and not (until and engine.returncode == 0):
             raise RuntimeError(f"engine exited early with code {engine.returncode}")
     finally:
         helpers_board[f"{run}:done"] = True

@@ -1,0 +1,39 @@
+NASCAR · E vs F, generation 30: E vs F
+
+1. tournaments: race points per race (wins)
+  gen 0: E 0.140 (17) · F 0.034 (7) · F-E -0.107
+  gen 5: E 0.049 (6) · F 0.150 (18) · F-E +0.101
+  gen 10: E 0.102 (11) · F 0.085 (13) · F-E -0.018
+  gen 15: E 0.105 (13) · F 0.067 (11) · F-E -0.038
+  gen 20: E 0.137 (15) · F 0.069 (9) · F-E -0.068
+  gen 25: E 0.103 (10) · F 0.097 (14) · F-E -0.007
+  gen 26: E 0.070 (12) · F 0.113 (12) · F-E +0.043
+  gen 27: E 0.083 (10) · F 0.110 (14) · F-E +0.027
+  gen 28: E 0.089 (12) · F 0.113 (12) · F-E +0.024
+  gen 29: E 0.076 (14) · F 0.101 (10) · F-E +0.025
+  gen 30: E 0.095 (10) · F 0.094 (14) · F-E -0.001
+  last 5: E 0.083 · F 0.106 · wins E 58 F 62
+
+2. rating ladder (best of each design):
+  gen 0: E E6@0 1000±0 · F F10@0 1019±29
+  gen 5: E E8@5 1168±27 · F F3@5 1292±15
+  gen 10: E E7@10 1278±27 · F F9@10 1310±16
+  gen 15: E E3@15 1244±17 · F F3@15 1273±26
+  gen 20: E E2@20 1365±18 · F F5@20 1333±26
+  gen 25: E E9@25 1305±26 · F F8@25 1326±21
+  gen 30: E E9@30 1339±25 · F F8@30 1329±26
+
+3. evaluation: 192 races of the 20 brains
+  points per race: E 0.034 · F 0.066 · F-E +0.032 ± 0.011 (2.9 standard errors) · sets 0.032/0.068 and 0.037/0.063
+  best E E3 0.091 vs best F F5 0.146: F ahead in 49% of the races
+  finished E 40% F 45% · wrecked or parked E 60% F 55% · downforce lost E 23% F 23%
+
+4. senses (rank among the brain's 52; 1 moves the hands most):
+  E E3: pace #42 · drift #31 · closing ahead #14 · closing behind #28 · hit-in #46
+  F F5: pace #37 · drift #48 · closing ahead #21 · closing behind #29 · hit-in #41
+
+5. room: independent directions used (90% of the activity), of the neurons there
+  E E3: layer 1 14 of 128 · layer 2 19 of 128
+  F F5: lane block 7 of 160 · traffic block 9 of 48 · mixing layer 14 of 48
+
+checkpoint at generation 30: reported only (the verdict comes at generation 40)
