@@ -54,6 +54,8 @@ const META = (() => { try { return JSON.parse(fs.readFileSync(path.join(DIR, 'me
 const MODE = { tracks: META.tracks ?? 'normal', cars: META.cars ?? (META.tracks === 'nascar' ? 'stock' : 'normal') };
 const NASCAR = MODE.tracks === 'nascar', CARS = MODE.cars === 'normal' && !NASCAR ? {} : { cars: MODE.cars };
 const SEASON_M = 24000, PRACTICE_M = SEASON_M, DUEL_M = 6000, SOLO_M = 6000, NASCAR_FIELD = 40;
+// practice fields on the ovals: the superspeedway pack is full, the other race the size of the tournament's
+const PACK_FIELD = 40, OVAL_FIELD = 20;
 // where a race is: a generated track's seed, or a real oval and a lap count for the distance
 const onTrack = (seedOrId, laps, metres) => NASCAR ? { trackId: seedOrId, laps: E.lapsFor(seedOrId, metres), ...CARS } : { trackSeed: seedOrId, laps, ...CARS };
 // race points per tournament race; judged over several tournaments, so a margin of 0.2 (about two places in a
@@ -292,22 +294,30 @@ const rosterName = (st, i) => {
 function scenarios(st, ai, rng, gen, r) {
   // rivals from the current field, plus a few past champions so nobody just learns to beat this crop
   const hall = range(rosterBase(st).hall, st.hall?.length ?? 0), fromHall = Math.min(cfg.hallRivals, hall.length);
+  const field = NASCAR ? OVAL_FIELD : opt.field, rest = st.population.map((_, i) => i).filter(i => i !== ai);
   const others = shuffle([
-    ...shuffle(st.population.map((_, i) => i).filter(i => i !== ai), rng).slice(0, opt.field - 1 - fromHall),
+    ...shuffle(rest.slice(), rng).slice(0, field - 1 - fromHall),
     ...shuffle(hall, rng).slice(0, fromHall),
   ], rng);
   // one start from the front, one from the back, plus a solo run so raw pace never erodes, plus a two-car
   // duel where only the winner scores: starting behind, the only way to score is to get past (out-brake it
   // or spin it round); starting in front, the only way is to hold it off. Rounds alternate attack and defence.
   if (NASCAR) {
-    // on the ovals: one race in a superspeedway pack, one on another oval, a solo run and a duel elsewhere.
-    // One race starts somewhere in the front half and the other in the back half, swapping each round, so
-    // both kinds of oval get practised from every part of the grid, as the tournament's shuffled grids demand.
+    // on the ovals: a full 40-car superspeedway pack, a 20-car race on another oval, a solo run and a duel
+    // elsewhere. The pack is everyone else, every past champion, then the field again (some brains drive two
+    // cars) until it's full, so there's always a drafting partner. One race starts somewhere in the front half
+    // and the other in the back half, swapping each round, so both kinds of oval get practised from every part
+    // of the grid, as the tournament's shuffled grids demand.
     const [pack, other] = E.practiceOvals(gen, r), solo = E.pickFrom(E.OTHER_OVALS(), `tt${gen}:${r}`), duel = E.pickFrom(E.OTHER_OVALS(), `duel${gen}:${r}`);
-    const half = opt.field / 2, front = Math.floor(rng() * half), back = half + Math.floor(rng() * half), packFront = (gen + r) % 2 === 0;
+    const crowd = shuffle([...rest, ...hall, ...shuffle(rest.slice(), rng), ...shuffle(rest.slice(), rng)].slice(0, PACK_FIELD - 1), rng);
+    const start = (rivals, front) => {
+      const half = (rivals.length + 1) >> 1;
+      return front ? Math.floor(rng() * half) : half + Math.floor(rng() * (rivals.length + 1 - half));
+    };
+    const packFront = (gen + r) % 2 === 0;
     return [
-      { kind: 'race', ...onTrack(pack, 0, PRACTICE_M), rivals: others, slot: packFront ? front : back },
-      { kind: 'race', ...onTrack(other, 0, PRACTICE_M), rivals: others, slot: packFront ? back : front },
+      { kind: 'race', ...onTrack(pack, 0, PRACTICE_M), rivals: crowd, slot: start(crowd, packFront) },
+      { kind: 'race', ...onTrack(other, 0, PRACTICE_M), rivals: others, slot: start(others, !packFront) },
       { kind: 'tt', ...onTrack(solo, 0, SOLO_M) },
       { kind: 'race', duel: true, ...onTrack(duel, 0, DUEL_M), rivals: [others[0]], slot: (gen + r) % 2 },
     ];

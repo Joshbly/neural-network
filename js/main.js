@@ -689,7 +689,12 @@ function practicePlan(prev, p, which) {
   const ai = roster.indexOf(pro), learner = live.byName.get(pro.name), copies = 2 * p.practice.pairs;
   const copy = (pros?.count ?? 0) % copies, sign = copy & 1 ? -1 : 1;
   const me = { weights: perturbGenes(learner.weights, esSeed(p.generation, p.round, ai, copy >> 1), sign * learner.sigma), species: learner.style };
-  const grid = (sc.rivals ?? []).map(name => ({ weights: live.byName.get(name).weights, species: live.byName.get(name).style }));
+  // a full superspeedway pack seats some brains twice: the second car gets a ′ so it has its own number and paint
+  const seated = new Set(), grid = (sc.rivals ?? []).map(name => {
+    const { weights, style } = live.byName.get(name), again = seated.has(name);
+    seated.add(name);
+    return { weights, species: again ? { ...style, name: `${style.name}′` } : style };
+  });
   grid.splice(sc.slot ?? 0, 0, me);
   const { rivals, ...scenario } = sc;
   return { kind: sc.kind === 'tt' ? 'solo' : sc.duel ? 'duel' : 'practice', canonical: true, scenario, grid, learner: pro.name, rival: sc.duel ? rivals[0] : null,
