@@ -19,3 +19,4 @@
                              output=stdout, stderr=stderr)
 subprocess.CalledProcessError: Command '['/Users/josh-profound/neural-network/.venv/bin/modal', 'deploy', '/Users/josh-profound/neural-network/train/modal_train.py']' returned non-zero exit status 1.
 2026-10-03T15:15:30.074Z start: fc-01M415B9KCH83EMX8ZS3BM8DRR
+2026-10-03T15:23:20.122Z start: fc-01M415SMK455CPD29GNKNVZ890

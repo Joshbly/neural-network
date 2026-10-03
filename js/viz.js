@@ -66,6 +66,16 @@ function neuronAt(x, y) {
   return best;
 }
 
+// each input's three strongest connections into the first layer (input * 4096 + neuron), worked out once per brain
+function strongestWiring(brain) {
+  if (brain.wiring) return brain.wiring;
+  const [inputs, first] = brain.layers, wiring = new Set();
+  for (let i = 0; i < inputs; i++)
+    Array.from({ length: first }, (_, j) => j).sort((a, b) => Math.abs(brain.weight(1, i, b)) - Math.abs(brain.weight(1, i, a)))
+      .slice(0, 3).forEach(j => wiring.add(i * 4096 + j));
+  return brain.wiring = wiring;
+}
+
 // marks: input index → colour, ringed in the drawing (the X-ray's top inputs); picked: the neuron being inspected
 function drawBrain(ctx, w, h, car, marks = new Map(), picked = null) {
   const { brain } = car;
@@ -84,13 +94,20 @@ function drawBrain(ctx, w, h, car, marks = new Map(), picked = null) {
   // edges glow with the signal actually flowing through them right now. Thousands of them: each is filed under
   // its colour, opacity and width (rounded to steps too fine to see) and every group is stroked as one path
   ctx.lineCap = 'round';
-  const groups = new Map();
+  const groups = new Map(), wiring = huge ? strongestWiring(brain) : null, resting = new Path2D();
   for (let l = 1; l < layers.length; l++)
     for (let j = 0; j < layers[l]; j++)
       for (let i = 0; i < layers[l - 1]; i++) {
         const weight = brain.weight(l, i, j), signal = weight * brain.acts[l - 1][i];
-        // the pros' wide nets have thousands of edges; only the ones carrying real signal get drawn
-        if (huge && Math.abs(signal) < 0.12) continue;
+        // the pros' wide nets have thousands of edges; only the ones carrying real signal get drawn, plus each input's
+        // strongest wiring in grey, so an input that's quiet right now (nothing ahead, a flat corner) still shows
+        if (huge && Math.abs(signal) < 0.12) {
+          if (l === 1 && wiring.has(i * 4096 + j)) {
+            resting.moveTo(...nodes[0][i]);
+            resting.lineTo(...nodes[1][j]);
+          }
+          continue;
+        }
         // the wide net has ~2,000 edges; thinner lines keep its active pathways readable
         const alpha = Math.round(Math.min(0.9, (dense ? 0.012 : 0.025) + Math.abs(signal) * (dense ? 0.2 : 0.32)) * 50);
         const width = Math.round(Math.min(dense ? 2 : 3.2, (dense ? 0.2 : 0.3) + Math.abs(weight) * (dense ? 0.4 : 0.7)) * 5);
@@ -101,6 +118,11 @@ function drawBrain(ctx, w, h, car, marks = new Map(), picked = null) {
         path.moveTo(x0, y0);
         path.lineTo(x1, y1);
       }
+  if (wiring) {
+    ctx.strokeStyle = 'rgba(160, 172, 196, 0.16)';
+    ctx.lineWidth = 0.6;
+    ctx.stroke(resting);
+  }
   for (const [key, path] of groups) {
     const [r, g, b] = key >= 100000 ? PINK : CYAN, rest = key % 100000;
     ctx.strokeStyle = `rgba(${r},${g},${b},${Math.max(1, Math.floor(rest / 100)) / 50})`;
