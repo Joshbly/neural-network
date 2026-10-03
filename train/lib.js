@@ -75,13 +75,16 @@ const tail = car => car.tailSteps / Math.max(1, car.steps);
 // Share of the race spent leaning door to door on another car, for the stats only: staying glued to someone's
 // flank is its own punishment on track (two-wide drag, side drafts, a loose car), not a cost added here.
 const rub = car => car.sideSteps / Math.max(1, car.steps);
-// Every wall contact costs reward on top of the speed and downforce it costs on track: about a place in a
-// 12-car practice race for each one, so braking for the corner always beats bouncing off the barrier.
+// Arcade cars: every wall contact costs reward on top of the speed and downforce it costs on track, about a
+// place in a 12-car practice race, so braking for the corner always beats bouncing off the barrier. Stock
+// cars pay nothing here: a hard hit can bend them, cripple their aero or end their race (STOCK_BASE.damage).
 const WALL_PENALTY = { race: 0.04, solo: 0.04 };
-// Winning is the marker of success. P1 is worth more than twice P2 and the rest slide down to nothing, so a
-// win with a scrape beats a clean second and sitting in P2 is never good enough; moving up still counts a
-// little. Practice and the tournament use the same table.
-const racePoints = (place, n) => place === 0 ? 1 : 0.45 * (n - 1 - place) / Math.max(1, n - 2);
+const walls = (car, perHit) => car.spec.stock ? 0 : perHit * car.wallHits;
+// Winning is the marker of success: P1 is worth more than twice P2, so a win with a scrape beats a clean second
+// and sitting in P2 is never good enough. Every place behind is worth fighting for too: from P2 the points fall
+// in equal steps to -0.45 for last, 0.09 a place in a 12-car race, more than a scrape or a lap spent leading.
+// Practice and the tournament use the same table.
+const racePoints = (place, n) => place === 0 ? 1 : place === n - 1 ? -0.45 : 0.45 - 0.9 * (place - 1) / (n - 2);
 // Leading only breaks ties: a whole race of it is about a place, so leading and losing is still losing.
 const led = car => car.ledSteps / Math.max(1, car.steps), LEAD_BONUS = 0.05;
 // On the ovals, breaking the rules costs reward on top of what it costs on track: a black flag (passing below
@@ -99,15 +102,15 @@ function timeTrial(sc) {
   while (!heat.over) heat.tick();
   const car = heat.cars[0], share = E.clamp(covered(car) / (laps * t.length), 0, 1);
   // a DNF (stalled or wrong way) must always score below crashing forward, or "never move" becomes
-  // a local optimum that wall penalties alone would make attractive
+  // a local optimum that the cost of crashing alone would make attractive
   return {
-    score: (car.finished ? 1 + (1 - car.steps / heat.maxSteps) : share) - WALL_PENALTY.solo * car.wallHits - 0.001 * car.impact - 0.25 * worn(car) - (car.retired ? 0.5 : 0) - ruleCost(car),
+    score: (car.finished ? 1 + (1 - car.steps / heat.maxSteps) : share) - walls(car, WALL_PENALTY.solo) - (car.spec.stock ? 0 : 0.001 * car.impact) - 0.25 * worn(car) - (car.retired ? 0.5 : 0) - ruleCost(car),
     finished: car.finished, lap: car.laps.length ? Math.min(...car.laps) / 60 : null, walls: car.wallHits, aero: worn(car),
   };
 }
 
 // A race: the candidate starts from `slot` among opponents. Winning is what counts; leading, distance
-// and finishing time only break ties; walls, ramming and damage cost you.
+// and finishing time only break ties; ramming and damage cost you, and walls too in arcade cars.
 function race(sc) {
   const { layers, genes, opponents, slot, laps, blind } = sc, t = trackOf(sc), brains = opponents.map(o => new E.Brain(o.layers, o.genes));
   brains.splice(slot, 0, new E.Brain(layers, genes));
@@ -126,7 +129,7 @@ function race(sc) {
   const share = E.clamp(covered(me) / (laps * t.length), 0, 1);
   return {
     score: racePoints(place, n) + LEAD_BONUS * led(me) + 0.15 * share + (me.finished ? 0.05 * (1 - me.steps / heat.maxSteps) : 0)
-      - WALL_PENALTY.race * me.wallHits - 0.1 * me.rammed - 0.5 * worn(me) - (me.retired ? 0.5 : 0) - ruleCost(me),
+      - walls(me, WALL_PENALTY.race) - 0.1 * me.rammed - 0.5 * worn(me) - (me.retired ? 0.5 : 0) - ruleCost(me),
     place, won: place === 0, finished: me.finished, walls: me.wallHits, passes: me.overtakes, passedBy: me.passedBy,
     rammed: me.rammed, aero: worn(me), tail: tail(me), rub: rub(me), led: led(me), lap: me.laps.length ? Math.min(...me.laps) / 60 : null,
   };

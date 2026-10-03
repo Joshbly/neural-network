@@ -88,6 +88,18 @@ const WALL_CRUSH = 0.25, WALL_KEEP_MIN = 0.35;
 const SCRAPE_DAMAGE = 0.6;
 // a single impulse this big bends the suspension; this big wrecks the car outright
 const BENDS = 2.5, WRECKS = 6.5;
+// the arcade cars' damage: these constants, no luck. Stock cars carry their own (STOCK_BASE.damage).
+const NORMAL_DAMAGE = { threshold: HIT_THRESHOLD, hit: HIT_DAMAGE, scrape: { car: SCRAPE_DAMAGE, wall: SCRAPE_DAMAGE }, sideToEnds: 0,
+  bend: [BENDS, BENDS], wreck: [WRECKS, WRECKS], luck: false };
+// A crash's luck, drawn from the hit itself (which car, when, how hard), so a race still replays exactly.
+function luck(car, j, salt) {
+  let h = Math.imul(car.slot + 1, 0x9e3779b1) ^ Math.imul(car.steps + 7, 0x85ebca77) ^ Math.imul(Math.round(j * 1e6), 0xc2b2ae3d) ^ salt;
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d);
+  h = Math.imul(h ^ (h >>> 15), 0x846ca68b);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+// certain above the top of the range, and with luck a chance rising across it
+const chance = (car, j, [lo, hi], lucky, salt) => j > hi || (lucky && j > lo && luck(car, j, salt) < (j - lo) / (hi - lo));
 // Aero: a smashed nose/splitter loses front downforce (the car pushes in fast corners), adds drag and
 // overheats the engine; a smashed spoiler/decklid loses rear downforce (the car goes loose); bent
 // fenders and quarter panels drag and rub the tyres. Bent suspension costs mechanical grip.
@@ -142,6 +154,21 @@ const STOCK_BASE = {
   stallMin: 60,
   // real tyres: twice the load gives less than twice the grip, so steep banking helps less than the textbook
   loadSens: 0.5,
+  // Crashes, by the hit's delta-v (the change in speed straight into what was hit). Rubbing and bump drafting
+  // (under 8 mph) are free; a 16 mph hit costs about a fifth of that end's downforce, 30 mph about half. From
+  // 12 to 25 mph the suspension may bend and from 18 to 35 mph the car may be wrecked outright, likelier the
+  // harder the hit, and each hit lands somewhere between half and one and a half times as hard, so the same
+  // crash sometimes limps on and sometimes ends the race. A hard hit to the door bends both ends too. Leaning
+  // on the wall for 3 s costs about a tenth of the downforce. Door to door with another car, sheet metal
+  // dents for the first second; after a full second without a break both cars lose a point of downforce
+  // a second at each end until they part.
+  damage: {
+    lean: { after: 60, grace: 6, perStep: 0.01 / 60 },
+    threshold: { car: 8 / MPH_PER_SPEED, wall: 8 / MPH_PER_SPEED },
+    hit: { car: { front: 6.5, side: 5.4, rear: 3.8 }, wall: { front: 13.5, side: 9.2, rear: 10.8 } },
+    scrape: { car: SCRAPE_DAMAGE, wall: 0.9 }, sideToEnds: 0.25,
+    bend: [12 / MPH_PER_SPEED, 25 / MPH_PER_SPEED], wreck: [18 / MPH_PER_SPEED, 35 / MPH_PER_SPEED], luck: true,
+  },
 };
 // power from the engines' real output at the wheels; grip, downforce, load sensitivity and drag fitted to the
 // Next Gen Cup poles (train/nascar/calibrate.js: 2.7% RMS over 18 tracks on 670 hp, 0.9% over the plate tracks)
@@ -217,6 +244,10 @@ class Car {
     // sideSteps: time spent leaning door to door on another car (rubbing: in contact flank-on this step)
     this.sideSteps = 0;
     this.rubbing = false;
+    // doorSteps: how long it's been touching another car flank to flank without a break; doorGap: since it last did
+    this.doorSteps = 0;
+    this.doorGap = Infinity;
+    this.doorTouch = false;
     // race control (NASCAR ovals): laps handed back (lucky dog), laps run under yellow (they don't count), and
     // whether the car is under its command
     this.freeLaps = this.bonus = this.yellowLaps = 0;
@@ -251,6 +282,14 @@ class Car {
     return { front: 1 - 1 / (1 + AERO_LOSS * front), rear: 1 - 1 / (1 + AERO_LOSS * rear), drag: NOSE_DRAG * front + TAIL_DRAG * rear + FLANK_DRAG * side };
   }
 
+  // takes `points` more of each end's downforce away (0.01: one percentage point), whatever is already gone
+  wearAero(points) {
+    for (const end of ['front', 'rear']) {
+      const lost = 1 - 1 / (1 + AERO_LOSS * this.damage[end]);
+      this.damage[end] = (1 / (1 - Math.min(0.99, lost + points)) - 1) / AERO_LOSS;
+    }
+  }
+
   // which part of the car faces an obstacle lying in direction (dx, dy)
   zoneFacing(dx, dy) {
     const along = dx * this.c + dy * this.s;
@@ -260,24 +299,28 @@ class Car {
   // j: impulse into the car from direction (dx, dy); scrape: sliding impulse; kind: 'car' | 'wall';
   // along: where on the body the contact is, front positive
   takeHit(dx, dy, j, scrape, kind, along) {
-    const zone = this.zoneFacing(dx, dy), over = j - HIT_THRESHOLD[kind];
+    const D = this.spec.damage ?? NORMAL_DAMAGE, zone = this.zoneFacing(dx, dy), over = j - D.threshold[kind];
     if (kind === 'car' && zone === 'front' && over > 0) this.rammed += over;
     // a side-on hit at a front or rear corner takes out that end's splitter or spoiler too
     const end = zone === 'side' && Math.abs(along) > this.spec.len / 4 ? (along > 0 ? 'front' : 'rear') : null;
     // door-to-door rubbing only dents sheet metal; grinding along the wall tears up whatever touches it
-    const rub = SCRAPE_DAMAGE * scrape, impact = over > 0 ? HIT_DAMAGE[kind][zone] * over * Math.sqrt(over) : 0;
+    const rub = D.scrape[kind] * scrape, impact = over > 0 ? D.hit[kind][zone] * over * Math.sqrt(over) * (D.luck ? 0.5 + luck(this, j, 1) : 1) : 0;
     const energy = kind === 'car' ? impact : impact + rub;
     if (kind === 'car') this.damage.side += rub;
     if (end) {
       this.damage[end] += energy / 2;
       this.damage.side += energy / 2;
+    } else if (zone === 'side' && D.sideToEnds) {
+      this.damage.front += energy * D.sideToEnds;
+      this.damage.rear += energy * D.sideToEnds;
+      this.damage.side += energy * (1 - 2 * D.sideToEnds);
     } else this.damage[zone] += energy;
-    if (j > BENDS) {
+    if (chance(this, j, D.bend, D.luck, 2)) {
       // a bent toe link drags the car toward the side that was hit
       this.damage.bent++;
       this.pull += 0.04 * Math.sign(-dx * this.s + dy * this.c);
     }
-    if (j > WRECKS) this.wrecked = true;
+    if (chance(this, j, D.wreck, D.luck, 3)) this.wrecked = true;
     return zone;
   }
 

@@ -157,6 +157,8 @@ function collideCars(a, b, events) {
       }
   }
   if (!depth) return;
+  // door to door: both flanks touching, pressing or not (rubbing below counts only the pressing)
+  if (a.zoneFacing(nx, ny) === 'side' && b.zoneFacing(-nx, -ny) === 'side') a.doorTouch = b.doorTouch = true;
   a.x -= nx * depth / 2;
   a.y -= ny * depth / 2;
   b.x += nx * depth / 2;
@@ -254,6 +256,16 @@ class Heat {
     for (const car of live) if (car.rubbing) {
       car.sideSteps++;
       car.rubbing = false;
+    }
+    for (const car of live) {
+      const lean = car.spec.damage?.lean;
+      if (lean) {
+        // a flicker apart (bodies exactly touching for a step or two) doesn't break the contact
+        car.doorGap = car.doorTouch ? 0 : car.doorGap + 1;
+        car.doorSteps = car.doorGap > lean.grace ? 0 : car.doorSteps + 1;
+        if (car.doorSteps > lean.after) car.wearAero(lean.perStep);
+      }
+      car.doorTouch = false;
     }
     for (const car of live) {
       car.advance(track, step);

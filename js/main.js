@@ -58,7 +58,7 @@ function trackFor(ref, tracks) {
   return OvalTrack.get(typeof ref === 'string' ? ref : NASCAR_TRACKS[ref % NASCAR_TRACKS.length].id);
 }
 // on an oval a race is a distance; on generated tracks a lap count
-const RACE_METRES = { practice: 7300, duel: 3000, tournament: 24000, saved: 24000, race: 8000 };
+const RACE_METRES = { practice: 24000, tournament: 24000, saved: 24000, duel: 6000, solo: 6000, race: 6000 };
 const lapsOn = (t, kind, laps) => t.nascar ? lapsFor(t.key, RACE_METRES[kind]) : laps;
 // numbers from the brains' names (A2·73 runs #73), unique in the field and the same from race to race
 function dress(heat) {
@@ -770,7 +770,7 @@ function startPros(go = true, next = false) {
     // on the save's own tracks the engine's lap count; elsewhere the same kind of race at that track's length
     const kind = !plan ? 'tournament' : { solo: 'practice', rating: 'tournament' }[plan.kind] ?? plan.kind;
     const away = !!track.nascar !== (homeMode().tracks === 'nascar');
-    const laps = !plan ? lapsOn(track, 'tournament', sim.laps) * (track.nascar ? sim.laps / 10 : 1) : away ? lapsOn(track, kind, { practice: 4, duel: 2 }[kind] ?? 10) : plan.laps ?? sc.laps;
+    const laps = !plan ? lapsOn(track, 'tournament', sim.laps) * (track.nascar ? sim.laps / 10 : 1) : away ? lapsOn(track, plan.kind in RACE_METRES ? plan.kind : kind, { practice: 4, duel: 2 }[kind] ?? 10) : plan.laps ?? sc.laps;
     heat = new Heat(track, brains, Math.max(2, Math.round(laps)), {
       cars: carsFor(track), stages: track.nascar && kind !== 'practice' && kind !== 'duel', practice: kind === 'practice' || kind === 'duel',
       // the same as the engine: green racing until the save's brains are RC.cautionsFrom generations old

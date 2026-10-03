@@ -280,8 +280,10 @@ const leaderOf = heat => heat.standings().find(car => car.running) ?? heat.stand
   const r = scriptedRace('bristol', 8, 6);
   // the leader a third of the way round its last lap, under green
   const finalLap = () => r.control.phase === 'green' && !leaderOf(r.heat).underYellow && r.control.lapsOf(leaderOf(r.heat)) === 5 && r.control.arcOf(leaderOf(r.heat)) > r.t.length * 0.3;
+  // spin the last car running: the scripted cars never swerve, and hitting a stopped car at speed wrecks them
+  const tailEnder = () => r.heat.standings().filter(car => car.running).at(-1);
   r.until(finalLap);
-  spinOut(r.heat.standings()[3], r.t);
+  spinOut(tailEnder(), r.t);
   r.until(() => r.said('attempt 1'), 400);
   ok(r.said('Overtime: green-white-checkered, attempt 1'), 'a caution on the final lap means overtime');
   r.until(() => r.control.phase === 'green', 40000);

@@ -43,19 +43,22 @@ const TOURNEY_TRACKS = 8, TOURNEY_RACES = 24, RACE_LAPS = 10, DUEL_LAPS = 2;
 // past champions, on 12 fixed tracks (every kind of oval in NASCAR mode). Fixed for good: changing any of
 // this would make new ratings incomparable with old ones.
 const RATE_EVERY = 5, RATE_RACES = 96, RATE_FIELD = 10, POOL_ACTIVE = 20;
-const RATE_TRACKS = range(7_000_001, 12), RATE_LAPS = 5, RATE_M = 10000;
+const RATE_TRACKS = range(7_000_001, 12), RATE_LAPS = 5, RATE_M = 24000;
 const RATE_OVALS = ['daytona', 'talladega', 'atlanta', 'charlotte', 'michigan', 'kansas', 'darlington', 'dover', 'phoenix', 'richmond', 'bristol', 'martinsville'];
 // A save races normal tracks or the real NASCAR ovals, in normal cars or stock cars (meta.json; any mix
-// trains). On the ovals a race is a distance, not a lap count: practice about 7.3 km (two laps of Daytona,
-// nine of Martinsville), duels 3 km, the season's races 24 km, so a short track isn't over in seconds.
+// trains). On the ovals a race is a distance, not a lap count. Practice races, the season and the rating are
+// 24 km (six laps of Daytona, 28 of Martinsville): long enough that a car has to live with its damage, a pack
+// has time to form and a driver can wait for the move instead of going all in at once. Duels and time trials
+// are 6 km.
 const META = (() => { try { return JSON.parse(fs.readFileSync(path.join(DIR, 'meta.json'), 'utf8')); } catch { return {}; } })();
 const MODE = { tracks: META.tracks ?? 'normal', cars: META.cars ?? (META.tracks === 'nascar' ? 'stock' : 'normal') };
 const NASCAR = MODE.tracks === 'nascar', CARS = MODE.cars === 'normal' && !NASCAR ? {} : { cars: MODE.cars };
-const PRACTICE_M = 7300, DUEL_M = 3000, SEASON_M = 24000, NASCAR_FIELD = 40;
+const SEASON_M = 24000, PRACTICE_M = SEASON_M, DUEL_M = 6000, SOLO_M = 6000, NASCAR_FIELD = 40;
 // where a race is: a generated track's seed, or a real oval and a lap count for the distance
 const onTrack = (seedOrId, laps, metres) => NASCAR ? { trackId: seedOrId, laps: E.lapsFor(seedOrId, metres), ...CARS } : { trackSeed: seedOrId, laps, ...CARS };
-// race points per tournament race; judged over several tournaments, so a margin of 0.1 is well clear of luck
-const MARGIN = 0.1;
+// race points per tournament race; judged over several tournaments, so a margin of 0.2 (about two places in a
+// 20-car field, a third of the gap between a win and second) is well clear of luck
+const MARGIN = 0.2;
 const SPECIES = { '16-10': 'A', '32-24-16': 'B', '64-64': 'C', '64-64-64': 'D', '128-128': 'E' };
 const speciesOf = layers => SPECIES[layers.slice(1, -1).join('-')] || layers.slice(1, -1).join('-');
 fs.mkdirSync(GENS, { recursive: true });
@@ -305,7 +308,7 @@ function scenarios(st, ai, rng, gen, r) {
     return [
       { kind: 'race', ...onTrack(pack, 0, PRACTICE_M), rivals: others, slot: packFront ? front : back },
       { kind: 'race', ...onTrack(other, 0, PRACTICE_M), rivals: others, slot: packFront ? back : front },
-      { kind: 'tt', ...onTrack(solo, 0, PRACTICE_M) },
+      { kind: 'tt', ...onTrack(solo, 0, SOLO_M) },
       { kind: 'race', duel: true, ...onTrack(duel, 0, DUEL_M), rivals: [others[0]], slot: (gen + r) % 2 },
     ];
   }
