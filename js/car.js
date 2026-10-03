@@ -45,14 +45,36 @@ IN.ttc = IN.paved + 1;
 // its own lane), and how much steeper the top lane is than its own there (progressive corners). One brain drives
 // 3° Bowman Gray and 33° Talladega; without these it can't tell which it's on. Zero on the generated tracks.
 IN.bank = IN.ttc + 1;
-const INPUT_COUNT = IN.bank + 3;
+// how the cars beside it are moving, as seen from the seat, where a memoryless brain had no speeds at all (dead ahead
+// and behind already have their closing speeds): the pace of what the front-quarter, door and rear-quarter sensors
+// feel (moving forward relative to me +), and the drift of what's at either door (moving to my right +: the squeeze).
+// Measured in the car's own turning frame, so a car holding station through a corner reads still, and at the bit of
+// bodywork the sensor feels, so a spinning car's tail swinging round reads fast. Each is scaled by its sensor's
+// reading: 0 with nothing there, fading in as a car comes near. Pace and drift in the other directions were tried and
+// told a probe nothing the other inputs didn't (who passes whom, contact, hits), so they aren't inputs.
+const PACE_RAY_DEG = [-150, -90, -40, 40, 90, 150], DRIFT_RAY_DEG = [-90, 90];
+const PACE_RAYS = PACE_RAY_DEG.map(d => CAR_RAY_DEG.indexOf(d)), DRIFT_RAYS = DRIFT_RAY_DEG.map(d => CAR_RAY_DEG.indexOf(d));
+IN.pace = IN.bank + 3;
+IN.drift = IN.pace + PACE_RAYS.length;
+const INPUT_COUNT = IN.drift + DRIFT_RAYS.length;
+// The closing speeds were scaled for the arcade cars: in a stock car they sat around 0.05, too quiet for training to
+// get a grip on. Brains that read the motion inputs read them this much louder; train/lib.js widen shrinks a brain's
+// weights on them by as much when it gains those inputs, so it drives exactly as before (a power of 2: bit for bit).
+const CLOSING_GAIN = 4;
+// design F's two kinds of sense: the other cars (where they are and how they move, the draft, the attacker's side,
+// hit-in, and where you stand among them), and everything about the road and your own car. Each group maps onto
+// itself when the world is mirrored, so the split holds in both passes of a decision.
+const TRAFFIC_SENSES = [...CAR_RAYS.map((_, r) => IN.cars + r), IN.closing, IN.rearClosing, IN.attacker, IN.draft, IN.ttc, IN.position,
+  ...PACE_RAYS.map((_, k) => IN.pace + k), ...DRIFT_RAYS.map((_, k) => IN.drift + k)];
+const ROAD_SENSES = Array.from({ length: INPUT_COUNT }, (_, i) => i).filter(i => !TRAFFIC_SENSES.includes(i));
 const BANK_NORM = 0.6, BANK_STEP = 5 * Math.PI / 180;
 
 // mirroring the world left/right: rays swap sides, anything signed left/right flips sign
 const MIRROR_FROM = Array.from({ length: INPUT_COUNT }, (_, i) => i);
 const MIRROR_SIGN = new Float32Array(INPUT_COUNT).fill(1);
-for (const [start, angles] of [[IN.walls, WALL_RAY_DEG], [IN.cars, CAR_RAY_DEG]])
+for (const [start, angles] of [[IN.walls, WALL_RAY_DEG], [IN.cars, CAR_RAY_DEG], [IN.pace, PACE_RAY_DEG], [IN.drift, DRIFT_RAY_DEG]])
   angles.forEach((a, r) => MIRROR_FROM[start + r] = start + angles.findIndex(b => ((a + b) % 360 + 360) % 360 === 0));
+for (let k = 0; k < DRIFT_RAYS.length; k++) MIRROR_SIGN[IN.drift + k] = -1;
 for (const i of [IN.attacker, IN.slide, IN.yaw, IN.trackPos, IN.heading, IN.prevSteer]) MIRROR_SIGN[i] = -1;
 for (let k = 0; k < LOOKAHEAD.length; k++) MIRROR_SIGN[IN.ahead + k] = -1;
 
@@ -135,8 +157,8 @@ const NORMAL = withDerived({
   power: POWER, traction: TRACTION, brake: BRAKE, reverse: REVERSE, reverseMax: REVERSE_MAX, aero: AERO, roll: ROLL,
   grip: GRIP, downforce: DOWNFORCE, maxSteer: MAX_STEER, steerRate: STEER_RATE, loadTransfer: LOAD_TRANSFER,
   draftDrag: DRAFT_DRAG, dirtyAir: DIRTY_AIR, pushDrag: PUSH_DRAG, sideDrag: SIDE_DRAG, draftLen: 220,
-  // input scales: top speed, a big slide, a fast rotation; road-ahead reach
-  speedNorm: MAX_SPEED, slideNorm: 3, yawNorm: 0.08, slipNorm: 2, lookScale: 1, wakeSpeed: 6, edgeNorm: HALF_WIDTH,
+  // input scales: top speed, a big slide, a fast rotation; road-ahead reach; another car's motion relative to you
+  speedNorm: MAX_SPEED, slideNorm: 3, yawNorm: 0.08, slipNorm: 2, lookScale: 1, wakeSpeed: 6, edgeNorm: HALF_WIDTH, motionNorm: 1,
   // a car that covers less than this in STALL_WINDOW steps has stalled
   stallMin: STALL_MIN,
   // tyre grip grows with load to this power (1: in proportion)
@@ -159,6 +181,9 @@ const STOCK_BASE = {
   // Measured from the middle on the arcade cars' scale, a car rubbing your door and one a metre away looked
   // almost the same, and two-wide pack racing is all about that metre.
   carNear: 12, speedNorm: 6.5, slideNorm: 1.5, yawNorm: 0.012, slipNorm: 1, lookScale: 1.5, wakeSpeed: 4,
+  // a car close by moves about 2 mph relative to you in a Talladega pack, 6 at Bristol, and up to 50 in a wreck: 8.4 mph
+  // reads half
+  motionNorm: 0.25,
   // stalled: no real forward progress (2 m) in 10 s, which catches wrong-way and truly stuck cars; a car
   // crawling out of the grass or turning round after a spin has race control's tow rule to beat instead
   stallWindow: 600, stallMin: 8,
@@ -286,6 +311,9 @@ class Car {
     this.mirrored = new Float32Array(INPUT_COUNT);
     this.wallSight = new Float32Array(WALL_RAYS.length);
     this.carSight = new Float32Array(CAR_RAYS.length);
+    // the motion of what each car sensor feels: pace, drift (IN.pace)
+    this.carPace = new Float32Array(CAR_RAYS.length);
+    this.carDrift = new Float32Array(CAR_RAYS.length);
 
     const { x, y, angle } = track.gridSlot(slot);
     Object.assign(this, { x, y, angle, vx: 0, vy: 0, spin: 0, slip: 0, frontLoose: false, rearLoose: false, wheelspin: 0, steer: 0, throttle: 0, draft: 0, tow: 0, pushed: 0, sideDrafted: 0, tailing: 0, airOff: 0, twoWide: 0, position: 0 });
@@ -428,17 +456,21 @@ class Car {
     // rivals: nearest chassis circle along each car ray
     this.carSight.fill(CAR_RAY_LEN);
     // a point of a rival's body (bearing, gap from my bodywork, distance from my centre) on the two sensors either side
-    const read = (r, reading) => {
+    const read = (r, reading, pace, drift) => {
       if (reading < 1e-6) return;
       const sight = P.selfExtent[r] + P.carNear * (1 / reading - 1);
-      if (sight < this.carSight[r]) this.carSight[r] = sight;
+      if (sight < this.carSight[r]) {
+        this.carSight[r] = sight;
+        this.carPace[r] = pace;
+        this.carDrift[r] = drift;
+      }
     };
-    const feel = (theta, gap, dist) => {
+    const feel = (theta, gap, dist, pace, drift) => {
       if (dist > CAR_RAY_LEN) return;
       const close = 1 / (1 + Math.max(0, gap) / P.carNear);
       sectorOf(theta);
-      read(sectorI, fade(1 - sectorF) * close);
-      read(sectorJ, fade(sectorF) * close);
+      read(sectorI, fade(1 - sectorF) * close, pace, drift);
+      read(sectorJ, fade(sectorF) * close, pace, drift);
     };
     let ahead = null, aheadDist = CAR_RAY_LEN, behind = null, behindDist = ATTACK_RANGE, behindSide = 0;
     for (let r = 0; r < CAR_RAYS.length; r++) {
@@ -459,6 +491,10 @@ class Car {
         behindDist = d;
         behindSide = across;
       }
+      // its motion as seen from my seat: its velocity less mine, less the sweep of my own turning (my frame carries
+      // everything round with it), turned into my frame
+      const turn = this.spin, mvx = other.vx - this.vx + turn * dy, mvy = other.vy - this.vy - turn * dx;
+      const pace = mvx * c + mvy * s, drift = -mvx * s + mvy * c;
       if (P.box && other.spec.box) {
         // stock cars sense in soft sectors, not thin rays: a car between two sensor directions shows on both,
         // cross-faded by how near it is to each, so one sliding round you fades from one sensor to the next with
@@ -468,12 +504,13 @@ class Car {
         // unchanged.
         const theta = datan2(across, fore), oc = other.c, os = other.s, { hx, hy } = other.spec.box, inv = 1 / Math.max(d, 1e-9);
         const gap = d - boxReach(P.box, fore * inv, across * inv) - boxReach(other.spec.box, (-dx * oc - dy * os) * inv, (dx * os - dy * oc) * inv);
-        feel(theta, gap, d);
-        // close by, its corners too (further off, its middle tells you enough)
+        feel(theta, gap, d, pace, drift);
+        // close by, its corners too (further off, its middle tells you enough); a corner also moves with the car's spin
         if (d < 3 * P.len) for (const [kx, ky] of BOX_CORNERS) {
           const px = dx + oc * kx * hx - os * ky * hy, py = dy + os * kx * hx + oc * ky * hy, pd = Math.max(Math.sqrt(px * px + py * py), 1e-9);
           const pf = px * c + py * s, pa = -px * s + py * c;
-          feel(datan2(pa, pf), pd - boxReach(P.box, pf / pd, pa / pd), pd);
+          const ox = oc * kx * hx - os * ky * hy, oy = os * kx * hx + oc * ky * hy, w = other.spin - turn, qx = mvx - w * oy, qy = mvy + w * ox;
+          feel(datan2(pa, pf), pd - boxReach(P.box, pf / pd, pa / pd), pd, qx * c + qy * s, -qx * s + qy * c);
         }
         if (Math.abs(theta) < AHEAD_ARC && gap < aheadDist) {
           ahead = other;
@@ -501,7 +538,11 @@ class Car {
           }
           if (far < Math.max(near, 0)) continue;
           const t = Math.max(0, near);
-          if (t < this.carSight[r]) this.carSight[r] = t;
+          if (t < this.carSight[r]) {
+            this.carSight[r] = t;
+            this.carPace[r] = pace;
+            this.carDrift[r] = drift;
+          }
           if (t < aheadDist && FRONT_CAR_RAY[r]) {
             ahead = other;
             aheadDist = t;
@@ -518,7 +559,11 @@ class Car {
           const miss2 = dist2 - along * along;
           if (miss2 > bodyR * bodyR) continue;
           const t = Math.max(0, along - Math.sqrt(bodyR * bodyR - miss2));
-          if (t < this.carSight[r]) this.carSight[r] = t;
+          if (t < this.carSight[r]) {
+            this.carSight[r] = t;
+            this.carPace[r] = pace;
+            this.carDrift[r] = drift;
+          }
           if (t < aheadDist && FRONT_CAR_RAY[r]) {
             ahead = other;
             aheadDist = t;
@@ -529,8 +574,18 @@ class Car {
     for (let r = 0; r < CAR_RAYS.length; r++)
       inputs[IN.cars + r] = this.carSight[r] >= CAR_RAY_LEN ? 0
         : P.carNear ? 1 / (1 + Math.max(0, this.carSight[r] - P.selfExtent[r]) / P.carNear) : 1 / (1 + this.carSight[r] / 25);
-    inputs[IN.closing] = closingSpeed(this, ahead);
-    inputs[IN.rearClosing] = closingSpeed(this, behind);
+    // a relative speed of motionNorm reads half, so a pack shuffling by a few mph and a 40 mph shunt both stay readable
+    for (let k = 0; k < PACE_RAYS.length; k++) {
+      const r = PACE_RAYS[k], near = inputs[IN.cars + r], pace = this.carPace[r];
+      inputs[IN.pace + k] = near ? near * pace / (Math.abs(pace) + P.motionNorm) : 0;
+    }
+    for (let k = 0; k < DRIFT_RAYS.length; k++) {
+      const r = DRIFT_RAYS[k], near = inputs[IN.cars + r], drift = this.carDrift[r];
+      inputs[IN.drift + k] = near ? near * drift / (Math.abs(drift) + P.motionNorm) : 0;
+    }
+    const gain = this.brain && this.brain.layers[0] > IN.pace ? CLOSING_GAIN : 1;
+    inputs[IN.closing] = gain * closingSpeed(this, ahead);
+    inputs[IN.rearClosing] = gain * closingSpeed(this, behind);
     inputs[IN.ttc] = timeToContact(this, ahead);
     // for drawing the warning only
     this.aheadCar = ahead;

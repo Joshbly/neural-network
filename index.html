@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Neural Racers — evolution from scratch</title>
-  <link rel="stylesheet" href="style.css?v=40">
+  <link rel="stylesheet" href="style.css?v=42">
 </head>
 <body>
   <header>
@@ -160,8 +160,10 @@
           <li><b>From nothing:</b> generation 0 is random wiring. Expect cars that drive straight into the first wall. Watch the fastest-lap chart: first nobody finishes a lap, then laps start appearing, then they get quicker.</li>
           <li><b>How they learn:</b> each generation every brain races hundreds of practice races against the others, always on brand-new tracks, and its weights are nudged toward whatever finished better. Then a 24-race tournament ranks everyone, and in each design a brain that's clearly behind over its last three tournaments is replaced by a slightly mutated copy of a strong sibling (<b>A1·2</b> is the second of A1's family). No family may hold more than half a design's seats, so every design keeps at least two different ways of driving to evolve from. Designs never mix and each keeps four seats, so the standings fairly answer "which brain is best?"</li>
           <li><b>The rating:</b> practice scores can't show progress, because everyone improves together. So every 5 generations each design's best races 96 races against frozen past champions on fixed tracks, and all the results ever recorded are turned into one rating per brain, like chess Elo: 400 points means 10 times stronger, generation 0 is 1000, and the shading shows how sure the number is. A rising line is real improvement.</li>
-          <li><b>How a brain drives:</b> 44 numbers come in (wall and car distances, how many seconds until it hits the car ahead, where the road goes next, how far it is from the edge of the racing surface and of the pavement (negative once it's down on the apron or the grass), how steep the banking is under it and in the corner ahead and whether the top lane is steeper, speed, slide, slipstream, its own damage) and two come out (steering, throttle). The <b>X-ray</b> under the brain shows which inputs are moving its hands right now.</li>
+          <li><b>How a brain drives:</b> 52 numbers come in (wall and car distances, whether the cars on its quarters and at its doors are gaining or dropping back (pace) and whether the one at its door is moving in on it (drift), how many seconds until it hits the car ahead, where the road goes next, how far it is from the edge of the racing surface and of the pavement (negative once it's down on the apron or the grass), how steep the banking is under it and in the corner ahead and whether the top lane is steeper, speed, slide, slipstream, its own damage) and two come out (steering, throttle). The <b>X-ray</b> under the brain shows which inputs are moving its hands right now.</li>
           <li><b>Neuron lab:</b> click any neuron in the brain to see what it reacts to and what it does, then force it on, off or silence it and watch the car change. Every neuron works twice per decision, once on the real view and once on a mirror image, so a neuron that reacts to "a car on my right" also covers the left; forcing one acts on the real view only. The facts come from <code>node train/neurons.js</code>, which records the brain in 48 full races, measures every neuron, and races it with its most important neurons silenced.</li>
+          <li class="nascar-tip"><b>Design T, the traffic graft:</b> an E with 32 more first-layer neurons (tinted in the brain view) that only see the traffic senses: the car sensors, both closing speeds, which side the attacker is on, the draft and hit-in. Their connections onward start at zero, so a T begins as an exact copy of the E it came from and has to learn to use the block. The traffic graft save races ten of them against ten plain copies of the same E, with the generation-72 field as frozen sparring partners in practice and the tournaments: if the T line pulls ahead, giving traffic its own neurons works.</li>
+          <li class="nascar-tip"><b>Design F, the split brain:</b> 160 lane neurons (tinted gold) that see only the road and the car itself, and 48 traffic neurons (teal) that see only the other cars: where they are, how they move, the draft, hit-in and the race order. Nothing sees both until 48 mixing neurons, and both blocks also wire straight to steer and gas (the shortcut lines in the brain view). About 16,400 weights to E's 23,600. The E vs F save starts ten of each from random weights to find out which design learns to race better.</li>
           <li><b>Stock-car aero:</b> sit in someone's draft to build a run; the speed carries for about a second after you pull out, enough to slingshot alongside. Glue yourself to their bumper and you push them faster too: a pair nose to tail laps a plate track about 6% quicker than a car alone, but the pusher is only towing the leader to the line, and to win it has to pull out and lose the draft. Pull your nose up to someone's rear quarter and you side-draft them: their car slows and goes loose, because you've taken the air off their spoiler (a push through a corner does the same). Running two wide is slow for both, since neither car has clean air, so a long side-by-side fight lets the pack behind catch up.</li>
           <li><b>Winning is everything:</b> a win is worth more than twice second place, and the rest of the field slides toward nothing, so P2 is never good enough. Leading most of the race and losing at the line is still losing: time in front and lap times only break ties. The tournament judges the same way, so the brains that survive are the ones that win.</li>
           <li><b>Riding bumpers:</b> nothing in the scoring punishes it. Glued to someone's bumper you just push them toward the win, so the only way to score is to pull out and pass. The <b>Tail</b> column shows how much of a race each design still spends on someone's bumper, and <b>Rub</b> how much door to door.</li>
@@ -181,19 +183,19 @@
     </aside>
   </main>
 
-  <script src="js/dmath.js?v=68"></script>
-  <script src="js/nn-wasm.js?v=68"></script>
-  <script src="js/nn.js?v=68"></script>
-  <script src="js/nascar-tracks.js?v=68"></script>
-  <script src="js/track.js?v=68"></script>
-  <script src="js/car.js?v=68"></script>
-  <script src="js/racecontrol.js?v=68"></script>
-  <script src="js/heat.js?v=68"></script>
-  <script src="js/sim.js?v=68"></script>
-  <script src="js/viz.js?v=68"></script>
-  <script src="js/render.js?v=68"></script>
-  <script src="js/nascar.js?v=68"></script>
-  <script src="js/replay.js?v=68"></script>
-  <script src="js/main.js?v=68"></script>
+  <script src="js/dmath.js?v=73"></script>
+  <script src="js/nn-wasm.js?v=73"></script>
+  <script src="js/nn.js?v=73"></script>
+  <script src="js/nascar-tracks.js?v=73"></script>
+  <script src="js/track.js?v=73"></script>
+  <script src="js/car.js?v=73"></script>
+  <script src="js/racecontrol.js?v=73"></script>
+  <script src="js/heat.js?v=73"></script>
+  <script src="js/sim.js?v=73"></script>
+  <script src="js/viz.js?v=73"></script>
+  <script src="js/render.js?v=73"></script>
+  <script src="js/nascar.js?v=73"></script>
+  <script src="js/replay.js?v=73"></script>
+  <script src="js/main.js?v=74"></script>
 </body>
 </html>

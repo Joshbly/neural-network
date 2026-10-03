@@ -8,33 +8,55 @@ const E = new Function(`${source}
 return { Brain, Track, OvalTrack, NASCAR_TRACKS, SURFACE, MPH_PER_SPEED, Heat, Car, RaceControl, IN, mulberry32, geneCount, INPUT_COUNT,
   HALF_WIDTH, REAR_CAR_RAYS, clamp, G, NORMAL, NASCAR_670, NASCAR_PLATE, specFor, stockSpec, steerLock,
   SUPERSPEEDWAYS, YARDSTICK_OVALS, practiceOvals, seasonOvals, lapsFor, pickFrom, OTHER_OVALS, RC,
-  noiseVector, perturbGenes, esSeed, quantizeGenes, scenarioOptions, WALL_RAY_DEG, CAR_RAY_DEG, LOOKAHEAD, DECIDE_EVERY };`)();
+  noiseVector, perturbGenes, geneScale, esSeed, quantizeGenes, scenarioOptions, WALL_RAY_DEG, CAR_RAY_DEG, LOOKAHEAD, DECIDE_EVERY,
+  MIRROR_FROM, MIRROR_SIGN, PACE_RAY_DEG, DRIFT_RAY_DEG, CLOSING_GAIN, TRAFFIC_SENSES, ROAD_SENSES };`)();
 
 // deterministic Gaussian noise from a seed (js/replay.js, shared with the app so it can rebuild any copy)
 const noise = E.noiseVector, perturb = E.perturbGenes;
+
+// Designs shaped beyond stacked layers. F (52-208-48-2): the first layer is 160 lane neurons that read only the road
+// and self senses and 48 traffic neurons that read only the traffic senses, then 48 mixing neurons, and both blocks
+// also wire straight to steer and gas (shortcuts).
+const SHAPES = {
+  F: {
+    mask: [{ name: 'lane', layer: 1, from: 0, to: 160, inputs: E.ROAD_SENSES }, { name: 'traffic', layer: 1, from: 160, to: 208, inputs: E.TRAFFIC_SENSES }],
+    shortcuts: true,
+  },
+};
 
 // Xavier-style hidden layers: weights ~ N(0, 1/fan_in), zero biases. The output layer starts near zero
 // with a positive throttle bias, so every fresh policy is "drive straight, steady throttle" whatever
 // its random hidden weights: something measurable from iteration one, never a dead start.
 // Upgrade a brain trained before newer inputs were appended: they get zero weights, so it drives
 // exactly as it did and training can then learn to use them.
+// A brain gaining the motion inputs reads the closing speeds louder (js/car.js CLOSING_GAIN): its weights on them
+// shrink to match.
 function widen(layers, genes) {
   const known = layers[0], extra = E.INPUT_COUNT - known;
   if (extra <= 0) return { layers, genes };
-  const wide = [E.INPUT_COUNT, ...layers.slice(1)], out = new Float32Array(E.geneCount(wide));
-  for (let j = 0; j < layers[1]; j++) out.set(genes.subarray(j * (known + 1), (j + 1) * (known + 1)), j * (known + extra + 1));
+  const wide = [E.INPUT_COUNT, ...layers.slice(1)], out = new Float32Array(genes.length + layers[1] * extra), louder = known <= E.IN.pace;
+  for (let j = 0; j < layers[1]; j++) {
+    const at = j * (known + extra + 1);
+    out.set(genes.subarray(j * (known + 1), (j + 1) * (known + 1)), at);
+    if (louder) for (const i of [E.IN.closing, E.IN.rearClosing]) out[at + 1 + i] /= E.CLOSING_GAIN;
+  }
   out.set(genes.subarray(layers[1] * (known + 1)), layers[1] * (known + extra + 1));
   return { layers: wide, genes: out };
 }
 
-function initParams(layers, seed) {
-  const rng = noise(seed, E.geneCount(layers)), genes = new Float32Array(rng.length);
+// A shaped design (SHAPES): a locked block's neurons are scaled to the inputs they may read and start at 0 on the rest,
+// and with shortcuts the outputs read the first hidden layer too.
+function initParams(layers, seed, { mask, shortcuts = false } = {}) {
+  const rng = noise(seed, E.geneCount(layers, shortcuts)), genes = new Float32Array(rng.length), L = layers.length - 1;
+  const blocks = [mask ?? []].flat().map(b => ({ ...b, inputs: new Set(b.inputs) }));
   let k = 0;
-  for (let l = 1; l < layers.length; l++) {
-    const output = l === layers.length - 1, scale = (output ? 0.01 : 1) / Math.sqrt(layers[l - 1]);
+  for (let l = 1; l <= L; l++) {
+    const output = l === L, fanIn = layers[l - 1] + (output && shortcuts ? layers[1] : 0);
     for (let j = 0; j < layers[l]; j++) {
+      const only = blocks.find(b => b.layer === l && j >= b.from && j < b.to)?.inputs;
+      const scale = (output ? 0.01 : 1) / Math.sqrt(only ? only.size : fanIn);
       genes[k++] = output && j === 1 ? 1 : 0;
-      for (let i = 0; i < layers[l - 1]; i++, k++) genes[k] = rng[k] * scale;
+      for (let i = 0; i < fanIn; i++, k++) genes[k] = only && !only.has(i) ? 0 : rng[k] * scale;
     }
   }
   return genes;
@@ -121,6 +143,7 @@ function race(sc) {
     me.sense = (tr, rivals) => {
       sense(tr, rivals);
       for (const r of E.REAR_CAR_RAYS) me.inputs[E.IN.cars + r] = 0;
+      E.PACE_RAY_DEG.forEach((d, k) => { if (Math.abs(d) >= 150) me.inputs[E.IN.pace + k] = 0; });
       me.inputs[E.IN.rearClosing] = me.inputs[E.IN.attacker] = 0;
     };
   }
@@ -151,4 +174,4 @@ function fieldRace(sc) {
 const RUNNERS = { tt: timeTrial, race, field: fieldRace };
 const run = scenario => RUNNERS[scenario.kind](scenario);
 
-module.exports = { E, noise, perturb, initParams, widen, run, track, oval, racePoints };
+module.exports = { E, noise, perturb, initParams, widen, run, track, oval, racePoints, SHAPES };

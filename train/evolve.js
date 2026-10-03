@@ -15,12 +15,12 @@
 //
 // State lives in models/evolution/ and survives restarts. The founders are models/originals/tab-field.json,
 // which is never written to.
-//   node train/evolve.js [--pairs 48] [--rounds 5] [--workers N]
+//   node train/evolve.js [--pairs 48] [--rounds 5] [--workers N] [--until GEN]
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { Worker } = require('worker_threads');
-const { E, noise, widen, initParams, racePoints } = require('./lib');
+const { E, noise, widen, initParams, racePoints, SHAPES } = require('./lib');
 const { fitRatings, pickOpponents, pickParent } = require('./ladder');
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc, []));
@@ -61,7 +61,9 @@ const onTrack = (seedOrId, laps, metres) => NASCAR ? { trackId: seedOrId, laps: 
 // race points per tournament race; judged over several tournaments, so a margin of 0.2 (about two places in a
 // 20-car field, a third of the gap between a win and second) is well clear of luck
 const MARGIN = 0.2;
-const SPECIES = { '16-10': 'A', '32-24-16': 'B', '64-64': 'C', '64-64-64': 'D', '128-128': 'E' };
+// T: an E with a grafted traffic block (train/graft.js), 32 first-layer neurons that only see the traffic senses;
+// F: lane and traffic blocks, a narrow mixing layer and shortcuts to the hands (SHAPES in train/lib.js)
+const SPECIES = { '16-10': 'A', '32-24-16': 'B', '64-64': 'C', '64-64-64': 'D', '128-128': 'E', '160-128': 'T', '208-48': 'F' };
 const speciesOf = layers => SPECIES[layers.slice(1, -1).join('-')] || layers.slice(1, -1).join('-');
 fs.mkdirSync(GENS, { recursive: true });
 
@@ -209,7 +211,9 @@ const founders = JSON.parse(fs.readFileSync(FOUNDERS, 'utf8')).drivers;
 //   hall*: past champions kept as practice rivals (hallRivals of the 11 in every practice race), so the
 //     field never forgets how to beat an older style;
 //   familyCap: no family line holds more than half a species' seats;
-//   mutate: a copy starts this many noise-scales (sigma) away from its parent instead of identical to it
+//   mutate: a copy starts this many noise-scales (sigma) away from its parent instead of identical to it;
+//   tournamentSparring: the hall races the tournaments too, filling every grid after the whole population
+//     (an experiment save, train/graft.js, keeps a fixed hall of sparring partners: hallEvery 0)
 const RECIPE = { pairs: 48, margin: MARGIN, settle: 3, window: 3, pickFromTop: true, hallEvery: 10, hallSize: 16, hallRivals: 3, familyCap: true, mutate: 1 };
 let cfg = RECIPE;
 
@@ -227,6 +231,9 @@ function load() {
       a.m = Float32Array.from(a.m);
       a.v = Float32Array.from(a.v);
     } else Object.assign(a, { m: null, v: null, t: 0 });
+    // a grafted brain's locked connections are exactly 0, or something upstream is broken: don't train on it
+    const gs = scaleOf(a);
+    if (gs && a.genes.some((g, j) => gs[j] === 0 && g !== 0)) throw new Error(`${a.name}: a locked connection isn't 0`);
   }
   return st;
 }
@@ -241,21 +248,23 @@ function loadLadder() {
 let ladder = { players: [], races: [] }, ratings = [];
 const poolOf = () => ladder.players.filter(p => p.genes);
 
-const DESIGNS = { A: [16, 10], B: [32, 24, 16], C: [64, 64], D: [64, 64, 64], E: [128, 128] };
+// F's lane and traffic blocks and shortcuts are in SHAPES (train/lib.js)
+const DESIGNS = { A: [16, 10], B: [32, 24, 16], C: [64, 64], D: [64, 64, 64], E: [128, 128], F: [208, 48] };
 
 function found() {
   const meta = META;
-  const start = { started: new Date().toISOString(), generation: 0, clones: {}, history: [] };
+  // meta.config: the save's own recipe changes (the founding period and family caps of a head-to-head)
+  const start = { started: new Date().toISOString(), generation: 0, clones: {}, history: [], ...meta.config && { config: meta.config } };
   if (meta.start === 'scratch') {
-    // Random brains, independent ones per design: four of each unless the save names its own seats (meta.seats,
-    // up to 10 a design). All they start with is the standard initialisation: output weights near zero and a
-    // slight throttle bias, so every car moves and can be measured. Learning from zero gets a bigger step size
-    // than refining (selection keeps tuning it).
-    const seats = meta.seats ?? Object.fromEntries(Object.keys(DESIGNS).map(design => [design, 4]));
+    // Random brains, independent ones per design: four of each of the five classic designs unless the save names
+    // its own seats (meta.seats, up to 10 a design). All they start with is the standard initialisation: output
+    // weights near zero and a slight throttle bias, so every car moves and can be measured. Learning from zero gets
+    // a bigger step size than refining (selection keeps tuning it).
+    const seats = meta.seats ?? { A: 4, B: 4, C: 4, D: 4, E: 4 };
     return { ...start, population: Object.entries(DESIGNS).flatMap(([design, hidden], d) => range(1, seats[design] ?? 0).map(k => {
-      const layers = [E.INPUT_COUNT, ...hidden, 2];
-      return { layers, genes: initParams(layers, (meta.seed ?? 1) * 1000 + d * 10 + k), name: `${design}${k}`, founder: `${design}${k}`,
-        label: `random ${design}${k}`, species: design, parent: null, born: 0, lr: 0.02, sigma: 0.04, wins: 0, races: 0 };
+      const layers = [E.INPUT_COUNT, ...hidden, 2], shape = SHAPES[design];
+      return { layers, genes: initParams(layers, (meta.seed ?? 1) * 1000 + d * 10 + k, shape), ...shape && { mask: shape.mask },
+        name: `${design}${k}`, founder: `${design}${k}`, label: `random ${design}${k}`, species: design, parent: null, born: 0, lr: 0.02, sigma: 0.04, wins: 0, races: 0 };
     })) };
   }
   return {
@@ -344,13 +353,25 @@ function scenarios(st, ai, rng, gen, r) {
 }
 const where = sc => sc.trackId ?? sc.trackSeed;
 
+// a grafted brain's locked connections and nudge scales (js/replay.js geneScale), worked out once per design
+const scales = new Map();
+const scaleOf = a => {
+  if (!a.mask) return null;
+  const key = `${a.layers.join('-')}:${JSON.stringify(a.mask)}`;
+  if (!scales.has(key)) scales.set(key, E.geneScale(a.layers, a.mask, a.genes.length));
+  return scales.get(key);
+};
+
 function step(a, seeds, outs, scenarioCount) {
-  const n = a.genes.length, shaped = new Float32Array(outs.length);
+  const n = a.genes.length, shaped = new Float32Array(outs.length), gs = scaleOf(a);
   for (let k = 0; k < scenarioCount; k++) centredRanks(outs.map(o => o[k])).forEach((r, j) => shaped[j] += r / scenarioCount);
   const grad = new Float32Array(n);
+  // the copies were nudged by the scaled noise, so that's what each weight is credited with: a locked connection
+  // gets no gradient, so Adam never moves it off 0 (and decay of 0 is 0)
   seeds.forEach((seed, i) => {
     const w = (shaped[2 * i] - shaped[2 * i + 1]) / (2 * seeds.length * a.sigma), eps = noise(seed, n);
-    for (let j = 0; j < n; j++) grad[j] += w * eps[j];
+    if (gs) for (let j = 0; j < n; j++) grad[j] += w * (gs[j] * eps[j]);
+    else for (let j = 0; j < n; j++) grad[j] += w * eps[j];
   });
   a.m ??= new Float32Array(n);
   a.v ??= new Float32Array(n);
@@ -400,7 +421,7 @@ async function train(st, gen) {
     update();
     const ticker = setInterval(update, 2000);
     await Promise.all(st.population.map((a, ai) => {
-      broadcast({ type: 'theta', agent: ai, layers: a.layers, theta: a.genes });
+      broadcast({ type: 'theta', agent: ai, layers: a.layers, theta: a.genes, mask: a.mask });
       const scs = plans[ai];
       const seeds = range(0, opt.pairs).map(i => E.esSeed(gen, r, ai, i));
       const jobs = seeds.flatMap(seed => [1, -1].map(sign => submit({ kind: 'es', agent: ai, seed, sign, sigma: a.sigma, scenarios: scs }).then(scores => {
@@ -430,22 +451,32 @@ async function tournament(st, gen) {
   // full flag rules once the brains are old enough to race clean (RC.cautionsFrom); green racing before that
   const raceAt = k => ({ ...onTrack(venues[k % venues.length], RACE_LAPS, SEASON_M), ...NASCAR && { stages: true, cautions: gen >= E.RC.cautionsFrom } });
   broadcast({ type: 'roster', drivers: roster(st) });
-  // a grid holds 20 cars (40 on the ovals): a bigger population races in random fields, enough races for ~24 each
-  const rng = E.mulberry32(gen * 7919 + 17), size = st.population.length, grid = Math.min(size, NASCAR ? NASCAR_FIELD : 20);
-  const raceCount = Math.ceil(TOURNEY_RACES * size / grid);
-  const races = range(0, raceCount).map(r => ({ kind: 'field', ...raceAt(r), entrants: shuffle(range(0, size), rng).slice(0, grid) }));
+  const rng = E.mulberry32(gen * 7919 + 17), size = st.population.length, cap = NASCAR ? NASCAR_FIELD : 20;
+  // sparring partners (cfg.tournamentSparring): the frozen hall fills every grid after the whole population, so an
+  // experiment is judged against a real field; only the population is scored
+  const sparring = cfg.tournamentSparring ? range(rosterBase(st).hall, st.hall?.length ?? 0) : [];
+  let races;
+  if (sparring.length) {
+    races = range(0, TOURNEY_RACES).map(r => ({ kind: 'field', ...raceAt(r),
+      entrants: shuffle([...range(0, size), ...shuffle(sparring.slice(), rng).slice(0, Math.max(0, cap - size))], rng) }));
+  } else {
+    // a grid holds 20 cars (40 on the ovals): a bigger population races in random fields, enough races for ~24 each
+    const grid = Math.min(size, cap);
+    races = range(0, Math.ceil(TOURNEY_RACES * size / grid)).map(r => ({ kind: 'field', ...raceAt(r), entrants: shuffle(range(0, size), rng).slice(0, grid) }));
+  }
   // every race exactly as it will run (the grid in starting order), so the app can show the real ones
-  const setups = races.map(({ entrants, ...scenario }) => ({ scenario, grid: entrants.map(i => st.population[i].name) }));
+  const setups = races.map(({ entrants, ...scenario }) => ({ scenario, grid: entrants.map(i => rosterName(st, i)) }));
   report({ generation: gen, phase: 'tournament', practice: null, tournament: { laps: NASCAR ? venues.map((_, k) => raceAt(k).laps) : RACE_LAPS, tracks: venues, mode: MODE, races: setups } });
   const results = await Promise.all(races.map(submit));
   // the official results, with the brains exactly as they raced: the app's tournament channel replays these
   writeJson(TOURNAMENT, {
-    gen, mode: MODE, population: packed(st),
+    gen, mode: MODE, population: packed(st), ...sparring.length && { sparring: pack(st.hall) },
     races: setups.map((setup, k) => ({ ...setup, order: results[k].map((res, slot) => [res.place, setup.grid[slot]]).sort((x, y) => x[0] - y[0]).map(x => x[1]) })),
   });
   const tally = st.population.map(() => ({ places: [], points: [], wins: 0, podiums: 0, aero: [], laps: [], rammed: [], passes: [], walls: [], tail: [], rub: [], led: [],
     stage: [], cautions: [], penalties: [], below: [] }));
   races.forEach((race, k) => results[k].forEach((res, slot) => {
+    if (race.entrants[slot] >= size) return;
     const t = tally[race.entrants[slot]];
     t.places.push(res.place / (race.entrants.length - 1));
     // stage points count a little: 10 for winning a stage is worth a tenth of a race win
@@ -492,7 +523,7 @@ async function tournament(st, gen) {
   }]));
   // the champion is whoever scored the most race points, which mostly means whoever won the most
   const champion = agents.reduce((x, y) => y.points > x.points ? y : x).name;
-  return { gen, at: new Date().toISOString(), races: raceCount, species, agents, champion, replaced: [] };
+  return { gen, at: new Date().toISOString(), races: races.length, species, agents, champion, replaced: [] };
 }
 
 // ---- the rating ladder ----
@@ -572,9 +603,10 @@ function select(st, entry, rng) {
     const jitter = () => rng() < 0.5 ? 0.8 : 1.25;
     // not an exact clone: starting a little way off, the copy explores its own direction from the first round
     const eps = cfg.mutate ? noise((Math.imul(entry.gen, 2654435761) ^ Math.imul(n, 40503) ^ sp.charCodeAt(0)) >>> 0, parent.genes.length) : null;
-    const genes = eps ? parent.genes.map((g, j) => g + cfg.mutate * parent.sigma * eps[j]) : parent.genes.slice();
+    const gs = scaleOf(parent);
+    const genes = eps ? parent.genes.map((g, j) => g + cfg.mutate * parent.sigma * (gs ? gs[j] * eps[j] : eps[j])) : parent.genes.slice();
     Object.assign(worst, {
-      name, founder: parent.founder, label: parent.label, parent: parent.name, born: entry.gen, genes,
+      name, founder: parent.founder, label: parent.label, parent: parent.name, born: entry.gen, genes, ...parent.mask && { mask: parent.mask },
       lr: clamp(parent.lr * jitter(), 0.001, 0.02), sigma: clamp(parent.sigma * jitter(), 0.01, 0.1), wins: 0, races: 0, recentPoints: [],
       m: null, v: null, t: 0,
     });
@@ -611,14 +643,17 @@ function log(entry, minutes) {
   }
   if (args['remote-file']) watchRemotes(args['remote-file'], args.token);
   console.log(`[evolve] ${st.population.length} pros, generation ${st.generation}, ${slots.length} threads on ${1 + remotes.length} machine(s), ${opt.pairs} pairs × ${opt.rounds} rounds per generation`);
+  // a new save's opening tournament and rating: generation 0, or the generation a save was founded from
   if (!st.history.length) {
-    const t0 = Date.now(), entry = await tournament(st, 0);
-    await rate(st, 0, entry);
+    const t0 = Date.now(), entry = await tournament(st, st.generation);
+    await rate(st, st.generation, entry);
     st.history.push(entry);
     save(st);
     log(entry, (Date.now() - t0) / 60000);
   }
   for (;;) {
+    // --until N: stop once generation N is saved (a capped run, a test); a restarted run that's already there stops at once
+    if (args.until && st.generation >= +args.until) process.exit(0);
     const gen = st.generation + 1, t0 = Date.now();
     report({ started: new Date(t0).toISOString(), lastMinutes: progress.lastMinutes });
     await train(st, gen);

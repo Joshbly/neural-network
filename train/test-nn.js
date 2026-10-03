@@ -38,6 +38,8 @@ const designs = [
   { name: 'older brain reading fewer inputs', layers: [30, 16, 10, 2] },
   { name: 'odd widths (padding)', layers: [inputCount, 5, 13, 1] },
   { name: 'design E, wild random genes', layers: [inputCount, 128, 128, 2], scale: 3 },
+  { name: 'design F (shortcuts to the outputs)', layers: [inputCount, 208, 48, 2], shortcuts: true },
+  { name: 'design F, small weights (outputs off the rails)', layers: [inputCount, 208, 48, 2], shortcuts: true, scale: 0.05 },
 ];
 const inputKinds = [
   () => rng() * 2 - 1,
@@ -47,8 +49,9 @@ const inputKinds = [
 ];
 let vectors = 0;
 for (const d of designs) {
-  const genes = d.genes ?? Float32Array.from(Brain.random(d.layers), g => g * (d.scale ?? 1) + (d.scale ? gaussian() * 0.01 : 0));
+  const genes = d.genes ?? Float32Array.from(Brain.random(d.layers, d.shortcuts), g => g * (d.scale ?? 1) + (d.scale ? gaussian() * 0.01 : 0));
   const js = new Brain(d.layers, genes), wasm = new Brain(d.layers, genes);
+  if (wasm.shortcuts !== !!d.shortcuts) fail(`${d.name}: shortcuts read as ${wasm.shortcuts}`);
   for (let n = 0; n < 1500; n++) {
     const kind = inputKinds[n % inputKinds.length];
     const x = Float32Array.from({ length: inputCount }, kind), m = Float32Array.from({ length: inputCount }, kind);
@@ -81,10 +84,11 @@ for (const sc of scenarios) {
 console.log(`2. whole races: ${scenarios.length} (12-car practice, duels, time trials, 20-car 10-lap tournament races): ${failures > before ? 'FAILED' : 'JSON-identical'}`);
 
 // ---- 3. memory filling up and starting over mid-race ----
-const before3 = failures, big = [inputCount, 128, 128, 2];
-const brains = Array.from({ length: 400 }, () => {
-  const genes = Brain.random(big);
-  return { js: new Brain(big, genes), wasm: new Brain(big, genes) };
+const before3 = failures, big = [inputCount, 128, 128, 2], split = [inputCount, 208, 48, 2];
+// every fourth one an F, so brains with shortcuts get moved out and back in among plain ones
+const brains = Array.from({ length: 400 }, (_, k) => {
+  const layers = k % 4 === 3 ? split : big, genes = Brain.random(layers, layers === split);
+  return { js: new Brain(layers, genes), wasm: new Brain(layers, genes) };
 });
 for (let n = 0; n < 6000; n++) {
   const b = brains[Math.floor(rng() * brains.length)], x = Float32Array.from({ length: inputCount }, () => rng() * 2 - 1);
@@ -100,6 +104,16 @@ for (const b of brains.slice(1)) b.wasm.think(Float32Array.from({ length: inputC
 if (kept.wasm.epoch !== -1) fail('expected the first brain to have been moved out of the kernel memory');
 shown.forEach((a, l) => same(a, kept.wasm.acts[l]) || fail(`evicted brain lost layer ${l}`));
 console.log(`3. memory reuse: 400 big brains (several times the kernel's memory), 6000 interleaved passes: ${failures > before3 ? 'FAILED' : 'exact, and evicted brains keep their activations'}`);
+
+// ---- 4. a weight list that fits neither shape is refused ----
+let refused = false;
+try {
+  new Brain(split, new Float32Array(E.geneCount(split, true) - 1));
+} catch {
+  refused = true;
+}
+if (!refused) fail('a brain with the wrong number of weights was built');
+console.log(`4. a weight list fitting neither a plain brain nor one with shortcuts: ${refused ? 'refused' : 'FAILED'}`);
 
 if (failures) {
   console.error(`\n${failures} mismatches`);

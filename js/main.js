@@ -34,8 +34,14 @@ let armedDelete = null;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const slotUrl = (id, file) => `models/slots/${id}/${file}`;
 const slotName = id => engine?.slots?.find(s => s.id === id)?.name || id;
-const DESIGN_HUE = { A: 205, B: 268, C: 150, D: 30, E: 330 };
-const DESIGN_OF = { '16-10': 'A', '32-24-16': 'B', '64-64': 'C', '64-64-64': 'D', '128-128': 'E' };
+// T: an E with a grafted traffic block (train/graft.js); F: lane and traffic blocks, a narrow mixing layer and
+// shortcuts to the hands (train/lib.js SHAPES)
+const DESIGN_HUE = { A: 205, B: 268, C: 150, D: 30, E: 330, T: 175, F: 52 };
+const DESIGN_OF = { '16-10': 'A', '32-24-16': 'B', '64-64': 'C', '64-64-64': 'D', '128-128': 'E', '160-128': 'T', '208-48': 'F' };
+// a brain's locked blocks (a graft's one, design F's lane and traffic); a graft's is its traffic block
+const blocksOf = mask => [mask ?? []].flat().map(b => ({ name: 'traffic', ...b }));
+// the weights training can move: all of them, less any locked at 0
+const trainable = a => a.genes.length - (geneScale(a.layers, a.mask, a.genes.length)?.filter(s => s === 0).length ?? 0);
 const designOf = layers => DESIGN_OF[layers.slice(1, -1).join('-')] || '?';
 const designColor = d => `hsl(${DESIGN_HUE[d] ?? 0} 85% 64%)`;
 
@@ -76,7 +82,7 @@ function dress(heat) {
 // four shades per design so siblings are tellable apart
 const proStyle = (name, layers, k, extra = {}) => {
   const design = designOf(layers), hue = DESIGN_HUE[design] ?? 0;
-  return { name, layers, design, genes: geneCount(layers), color: `hsl(${hue + (k % 4 - 1.5) * 9} 85% ${56 + (k % 2) * 12}%)`, ...extra };
+  return { name, layers, design, genes: geneCount(layers, extra.shortcuts), color: `hsl(${hue + (k % 4 - 1.5) * 9} 85% ${56 + (k % 2) * 12}%)`, ...extra };
 };
 
 function fitCanvas(el) {
@@ -106,7 +112,11 @@ const activeHeat = () => race ? race.heat : pros ? pros.heat : sim.heats[sim.fea
 // each species gets its own family of shades, so A and B are tellable apart at a glance
 const colorOf = car => car.human ? YOU_COLOR : car.pro ? car.species.color : `hsl(${car.species.hue + (car.slot % 4 - 1.5) * 9} 85% ${54 + (car.slot % 3) * 9}%)`;
 const nameOf = car => car.human ? 'YOU' : `${car.number != null ? `#${car.number} ` : ''}${car.pro ? car.species.name : race ? `AI ${car.rank}·${car.species.name}` : `${car.species.name}${car.slot + 1}`}`;
-const describe = sp => `${sp.design ? `design ${sp.design}, ` : ''}${sp.layers.length - 2} hidden layers (${sp.layers.slice(1, -1).join('-')})`;
+const describe = sp => {
+  const blocks = blocksOf(sp.mask), split = blocks.length > 1 ? `: ${blocks.map(b => `${b.to - b.from} ${b.name}`).join(' + ')} neurons, ${sp.layers.at(-2)} mixing`
+    : blocks.length ? `, ${blocks[0].to - blocks[0].from} of them a traffic block` : '';
+  return `${sp.design ? `design ${sp.design}, ` : ''}${sp.layers.length - 2} hidden layers (${sp.layers.slice(1, -1).join('-')})${split}${sp.shortcuts ? ', shortcuts to the hands' : ''}`;
+};
 const damageText = car => {
   const { front, rear, drag } = car.condition, pct = v => Math.round(v * 100);
   return car.wrecked ? 'WRECKED' : `${pct(front)}·${pct(rear)}% +${pct(drag)}%`;
@@ -266,7 +276,14 @@ function drawLeague() {
     series: aero, yMin: 0, yMax: Math.max(0.2, ...aero.flatMap(s => s.points.map(p => p[1]))), format: pct, empty: 'waiting for the first tournament…',
   });
 
-  const last = history.at(-1), champ = league.population.find(a => a.name === last.champion);
+  // a save founded mid-run (train/graft.js) has no finished generation of its own until its first tournament comes in
+  const last = history.at(-1);
+  if (!last) {
+    for (const id of ['#stat-champion', '#stat-lap', '#stat-gen-time']) $(id).textContent = '—';
+    $('#design-table').innerHTML = '';
+    return;
+  }
+  const champ = league.population.find(a => a.name === last.champion);
   const top = best.length ? best.reduce((x, y) => y.gen > x.gen || (y.gen === x.gen && y.r > x.r) ? y : x) : null;
   $('#stat-champion').innerHTML = champ ? `<span style="color:${champ.style.color}">${champ.name}</span><small>design ${champ.species}, gen ${last.gen}${top ? ` · rated ${top.r} ±${Math.round(1.96 * top.sd)}` : ''}</small>` : '—';
   const fastest = designs.filter(d => last.species[d].lap != null).sort((x, y) => last.species[x].lap - last.species[y].lap)[0];
@@ -275,7 +292,7 @@ function drawLeague() {
   const rows = designs.map(d => ({ d, s: last.species[d], members: league.population.filter(a => a.species === d) })).sort((x, y) => y.s.wins - x.s.wins);
   $('#design-table').innerHTML = `<tr><th>Design</th><th>Brain</th><th title="Share of this generation's tournament races won">Wins</th><th title="Share of the field beaten">Beats</th><th>Best</th><th>Aero lost</th><th title="Share of the race spent glued to the bumper of the car ahead">Tail</th><th title="Share of the race spent door to door in contact with another car">Rub</th></tr>` + rows.map(({ d, s, members }) => {
     const best = members.slice().sort(byStrength)[0];
-    return `<tr><td><b style="color:${designColor(d)}">${d}</b></td><td>${members[0].layers.slice(1, -1).join('-')} <small>${(geneCount(members[0].layers) / 1000).toFixed(1)}k</small></td>
+    return `<tr><td><b style="color:${designColor(d)}">${d}</b></td><td>${members[0].layers.slice(1, -1).join('-')} <small title="weights training can move">${(trainable(members[0]) / 1000).toFixed(1)}k</small></td>
       <td>${Math.round(100 * s.wins / tourneyRaces(last))}%</td><td>${Math.round((1 - s.avgPlace) * 100)}%</td><td style="color:${best.style.color}">${best.name}</td><td>${Math.round(s.aero * 50)}%</td><td>${s.tail != null ? `${Math.round(s.tail * 100)}%` : '—'}</td><td>${s.rub != null ? `${Math.round(s.rub * 100)}%` : '—'}</td></tr>`;
   }).join('');
 }
@@ -298,11 +315,13 @@ function drawBoard() {
   const seats = league?.population ?? [], hist = p?.practiceHistory ?? [];
   const last = hist.at(-1), prev = last && last.gen === p?.generation && last.round === p?.round ? hist.at(-2) : last;
   const watching = pros?.plan?.learner ?? state.picked;
-  const byDesign = Object.keys(DESIGN_HUE).map(d => seats.map((a, i) => ({ a, i })).filter(x => x.a.species === d));
-  const rows = Math.max(0, ...byDesign.map(col => col.length));
+  // a column per design in the save (two each for a head-to-head, so twenty seats still fit in five rows)
+  const byDesign = Object.keys(DESIGN_HUE).map(d => seats.map((a, i) => ({ a, i })).filter(x => x.a.species === d)).filter(col => col.length);
+  const per = Math.max(1, Math.floor(5 / Math.max(1, byDesign.length))), rows = Math.ceil(Math.max(0, ...byDesign.map(col => col.length)) / per);
+  $('#pb-grid').style.gridTemplateColumns = `repeat(${byDesign.length * per}, 1fr)`;
   const cells = [];
-  for (let r = 0; r < rows; r++) for (const col of byDesign) {
-    const seat = col[r];
+  for (let r = 0; r < rows; r++) for (const col of byDesign) for (let k = 0; k < per; k++) {
+    const seat = col[r * per + k];
     if (!seat) { cells.push('<div></div>'); continue; }
     const name = p?.practice?.pros?.[seat.i]?.name ?? seat.a.name, done = b?.done[seat.i] ?? 0, mean = b?.mean[seat.i], before = prev?.mean[seat.i];
     const delta = mean != null && before != null ? mean - before : null;
@@ -381,7 +400,7 @@ function adoptLeague(data, slot) {
   const switched = league && league.slot !== slot;
   data.population.forEach((a, k) => {
     a.weights = Float32Array.from(a.genes);
-    a.style = proStyle(a.name, a.layers, k, { parent: a.parent, born: a.born, label: a.label });
+    a.style = proStyle(a.name, a.layers, k, { parent: a.parent, born: a.born, label: a.label, mask: a.mask, shortcuts: a.genes.length > geneCount(a.layers) });
   });
   const before = league?.generation;
   league = Object.assign(data, { slot });
@@ -419,7 +438,7 @@ async function refreshLive() {
   const everyone = [...data.population, ...(data.hall ?? [])];
   everyone.forEach((a, k) => {
     a.weights = Float32Array.from(a.genes);
-    a.style = proStyle(a.name, a.layers, k, { parent: a.parent, born: a.born, label: a.label, frozen: k >= data.population.length });
+    a.style = proStyle(a.name, a.layers, k, { parent: a.parent, born: a.born, label: a.label, frozen: k >= data.population.length, mask: a.mask, shortcuts: a.genes.length > geneCount(a.layers) });
   });
   live = { ...data, key, progress, byName: new Map(everyone.map(a => [a.name, a])) };
 }
@@ -711,8 +730,9 @@ async function refreshOfficial(slot, gen) {
   official = { slot, gen, tournament: null, rating: null };
   const [t, r] = await Promise.all([getJson(slotUrl(slot, 'tournament.json')), getJson(slotUrl(slot, 'rating-races.json'))]);
   if (official.slot !== slot) return;
-  const asDriver = (a, k) => ({ weights: Float32Array.from(a.genes), species: proStyle(a.name, a.layers, k, { parent: a.parent, born: a.born, label: a.label }) });
-  if (t) official.tournament = { gen: t.gen, races: t.races, byName: new Map(t.population.map((a, k) => [a.name, asDriver(a, k)])) };
+  const asDriver = (a, k) => ({ weights: Float32Array.from(a.genes), species: proStyle(a.name, a.layers, k, { parent: a.parent, born: a.born, label: a.label, mask: a.mask, shortcuts: a.genes.length > geneCount(a.layers) }) });
+  // an experiment save's tournaments seat its frozen sparring partners too
+  if (t) official.tournament = { gen: t.gen, races: t.races, byName: new Map([...t.population, ...t.sparring ?? []].map((a, k) => [a.name, asDriver(a, k)])) };
   if (r) official.rating = { gen: r.gen, races: r.races, byId: new Map(r.players.map((p, k) => [p.id, asDriver(p, k)])) };
 }
 
@@ -730,7 +750,8 @@ function practicePlan(prev, p, which) {
   const races = lineup(pro), j = prev?.learner === pro.name ? (prev.j + 1) % races.length : 0, { sc } = races[j];
   const ai = roster.indexOf(pro), learner = live.byName.get(pro.name), copies = 2 * p.practice.pairs;
   const copy = (pros?.count ?? 0) % copies, sign = copy & 1 ? -1 : 1;
-  const me = { weights: perturbGenes(learner.weights, esSeed(p.generation, p.round, ai, copy >> 1), sign * learner.sigma), species: learner.style };
+  // a grafted brain's copies keep its locked connections at 0, exactly as the engine made them
+  const me = { weights: perturbGenes(learner.weights, esSeed(p.generation, p.round, ai, copy >> 1), sign * learner.sigma, geneScale(learner.layers, learner.mask, learner.weights.length)), species: learner.style };
   // a full superspeedway pack seats some brains twice: the second car gets a ′ so it has its own number and paint
   const seated = new Set(), grid = (sc.rivals ?? []).map(name => {
     const { weights, style } = live.byName.get(name), again = seated.has(name);
@@ -971,7 +992,7 @@ function neuronFacts(name, brain, l, j) {
 
 function pickNeuron(car, l, j) {
   dropNeuron();
-  pickedNeuron = { brain: car.brain, name: car.species?.name, l, j };
+  pickedNeuron = { brain: car.brain, name: car.species?.name, mask: car.species?.mask, l, j };
   showNeuron();
 }
 
@@ -982,15 +1003,17 @@ function dropNeuron() {
 }
 
 function showNeuron() {
-  const { brain, name, l, j } = pickedNeuron, facts = neuronFacts(name, brain, l, j), held = brain.held?.[0]?.[2];
+  const { brain, name, mask, l, j } = pickedNeuron, facts = neuronFacts(name, brain, l, j), held = brain.held?.[0]?.[2];
   const pct = v => `${Math.round(v * 100)}%`;
   const hands = ([s, g]) => `steer ${s > 0 ? '▶' : '◀'}${Math.abs(s).toFixed(2)} gas ${g >= 0 ? '+' : '−'}${Math.abs(g).toFixed(2)}`;
+  const block = blocksOf(mask).find(b => l === b.layer && j >= b.from && j < b.to);
   $('#neuron').hidden = false;
-  $('#neuron-name').textContent = `${name} · layer ${l} of ${brain.layers.length - 2} · neuron ${j + 1}`;
+  $('#neuron-name').textContent = `${name} · layer ${l} of ${brain.layers.length - 2} · neuron ${j + 1}${block ? ` · ${block.name} block` : ''}`;
   if (facts?.nr) {
     const { entry, nr } = facts, base = entry.intact, cut = nr.lesion;
     $('#neuron-label').textContent = nr.label;
     $('#neuron-facts').innerHTML = [
+      nr.block === 'traffic' && '<em>traffic block: sees only the car sensors, closing speeds, attacker side, draft and hit-in</em>',
       nr.concepts.length && `<em>reacts to</em> ${nr.concepts.map(([c, d]) => `${esc(c)} ${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}σ`).join(', ')}`,
       nr.inputs.length && `<em>follows</em> ${nr.inputs.map(([i, r]) => `${esc(neuronAtlas.inputs[i])} ${r.toFixed(2)}`).join(', ')}`,
       `<em>forced on</em> ${hands(nr.plus)} <em>· off</em> ${hands(nr.minus)}`,

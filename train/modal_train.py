@@ -49,7 +49,8 @@ def helper(run: str, index: int, token: str, deadline: float):
 
 @app.function(image=image, cpu=CORES, memory=24576, timeout=9 * 3600, volumes={"/vol": volume},
               retries=modal.Retries(max_retries=2, initial_delay=10.0))
-def train(slot: str, deadline: float, helpers: int):
+def train(slot: str, deadline: float, helpers: int, until: int = 0):
+    # until: stop once that generation is saved (0: run to the deadline)
     # The main machine starts its own helpers, so they don't depend on the laptop that launched the run.
     # Each attempt (a preempted run is retried) gets a fresh run id and token.
     run, token = uuid.uuid4().hex, secrets.token_hex(16)

@@ -8,7 +8,7 @@
 //   node train/test-nascar.js
 const fs = require('fs');
 const path = require('path');
-const { E, run, perturb } = require('./lib');
+const { E, run, perturb, widen, initParams } = require('./lib');
 const { SPECS } = require('./nascar/specs');
 const { scripted } = require('./nascar/line');
 
@@ -186,6 +186,55 @@ function bump(offsetUnits) {
   ok(square.gained > 0.1 && square.sideways < 0.01 && offset.sideways < 0.05, 'a bump pushes the car ahead straight on, not aside');
   const spec = E.NASCAR_670;
   ok(spec.box.hx === spec.len / 2 && spec.box.hy === spec.wid / 2, 'the collision body is the drawn body: 4.97 m by 1.99 m');
+}
+
+// the car sensors feel how the cars beside them move, as seen from the seat (IN.pace, IN.drift)
+{
+  const t = built.get('michigan'), heat = new E.Heat(t, [null, null], 3, { cars: 'stock', practice: true });
+  heat.tick();
+  const [me, other] = heat.cars, I = E.IN;
+  const pace = d => I.pace + E.PACE_RAY_DEG.indexOf(d), drift = d => I.drift + E.DRIFT_RAY_DEG.indexOf(d);
+  const arc = t.length * 0.3, [x0, y0] = t.pointAt(arc, 0), h = t.headingAt(arc), fwd = [Math.cos(h), Math.sin(h)], right = [-fwd[1], fwd[0]];
+  const set = (car, [x, y], [vx, vy], spin = 0) => {
+    const angle = Math.atan2(vy, vx);
+    Object.assign(car, { x, y, vx, vy, spin, angle, c: Math.cos(angle), s: Math.sin(angle), lastArc: arc });
+  };
+  const spot = (side, ahead) => [x0 + side * right[0] + ahead * fwd[0], y0 + side * right[1] + ahead * fwd[1]];
+  const vel = (speed, sideways = 0) => [speed * fwd[0] + sideways * right[0], speed * fwd[1] + sideways * right[1]];
+  const feel = (where, v, spin = 0) => {
+    set(me, spot(0, 0), vel(6));
+    set(other, where, v, spin);
+    me.sense(t, heat.cars);
+    return Float32Array.from(me.inputs);
+  };
+  const motion = x => Math.max(...Array.from(x.subarray(I.pace, E.INPUT_COUNT), Math.abs));
+  // a rigid turn about a point 75 m to the left: two cars holding station through a corner
+  const W = -6 / 300, C = spot(-300, 0), rigid = ([x, y]) => [-W * (y - C[1]), W * (x - C[0])];
+  const still = [spot(10, 0), spot(0, 30), spot(9, -22)].map(p => { set(me, spot(0, 0), rigid(spot(0, 0)), W); set(other, p, rigid(p), W); me.sense(t, heat.cars); return motion(me.inputs); });
+  ok(Math.max(...still) < 1e-6, `cars cornering together read still: alongside, ahead, on the rear quarter (largest ${Math.max(...still).toExponential(1)})`);
+  const faster = feel(spot(10, 0), vel(6.2)), closing = feel(spot(10, 0), vel(6, -0.1));
+  console.log(`  car alongside ▶ 7 mph faster: pace 90▶ ${faster[pace(90)].toFixed(2)}, 150▶ ${faster[pace(150)].toFixed(2)}; moving across toward me: drift 90▶ ${closing[drift(90)].toFixed(2)}`);
+  ok(faster[pace(90)] > 0.2 && Math.abs(faster[drift(90)]) < 1e-3, 'a car alongside pulling ahead reads positive pace, no drift');
+  ok(closing[drift(90)] < -0.1 && Math.abs(closing[pace(90)]) < 1e-3, 'a car alongside on the right coming across reads drift toward me (to the left)');
+  ok(feel(spot(10, -18), vel(6.3))[pace(150)] > 0.1, 'a car coming up on my rear quarter reads positive pace there');
+  ok(motion(feel(spot(10, 0), vel(6), 0.05)) > 0.05 && motion(feel(spot(10, 0), vel(6))) < 1e-6, "a car alongside spinning on the spot: its corners swinging round read fast");
+  ok(motion(feel(spot(0, 400), vel(3))) === 0, `with no car in range all ${E.INPUT_COUNT - I.pace} read 0`);
+  // the mirror image of the world: the car on the left coming across, against the mirrored inputs of it on the right
+  const leftward = feel(spot(-10, 4), vel(6.15, 0.1)), rightward = feel(spot(10, 4), vel(6.15, -0.1));
+  let worst = 0;
+  for (let i = I.pace; i < E.INPUT_COUNT; i++) worst = Math.max(worst, Math.abs(leftward[i] - E.MIRROR_SIGN[i] * rightward[E.MIRROR_FROM[i]]));
+  ok(worst < 1e-5, `mirrored, a car on the left reads as its twin on the right (largest difference ${worst.toExponential(1)})`);
+  // a brain given the motion inputs hears the closing speeds louder, its weights on them shrunk to match: same decision
+  const short = [I.pace, 32, 2], genes = initParams(short, 5), wide = widen(short, genes), heard = [];
+  for (const [layers, g] of [[short, genes], [wide.layers, wide.genes]]) {
+    me.brain = new E.Brain(layers, g);
+    feel(spot(0, 30), vel(5.7));
+    me.decide();
+    heard.push({ closing: me.inputs[I.closing], action: Array.from(me.action) });
+  }
+  me.brain = null;
+  ok(heard[0].closing > 0 && heard[1].closing === E.CLOSING_GAIN * heard[0].closing && heard[1].action.every((v, k) => v === heard[0].action[k]),
+    `upgraded, a brain reads closing ${E.CLOSING_GAIN}x louder (${heard[0].closing.toFixed(2)} → ${heard[1].closing.toFixed(2)}) and decides exactly as before`);
 }
 
 // ---- 4. flags ----

@@ -10,8 +10,11 @@ const INPUTS = [
   ['nose dmg', '#ff8a7a'], ['tail dmg', '#ff8a7a'],
   ['track edge', '#ffd98a'], ['paved edge', '#ffd98a'], ['hit in ▲', '#ff9fd0'],
   ['banking', '#ffd98a'], ['bank ahead', '#ffd98a'], ['top steeper', '#ffd98a'],
+  ...PACE_RAY_DEG.map(d => [`pace ${arrowLabel(d)}`, '#ffc4e4']),
+  ...DRIFT_RAY_DEG.map(d => [`drift ${arrowLabel(d)}`, '#ffc4e4']),
 ];
 const CYAN = [56, 225, 255], PINK = [255, 79, 163], IDLE = [28, 34, 48];
+const BLOCK_RGB = { traffic: '64, 224, 208', lane: '255, 209, 102' };
 
 function activationColor(v) {
   const t = Math.min(1, Math.abs(v)), hot = v >= 0 ? CYAN : PINK;
@@ -91,10 +94,43 @@ function drawBrain(ctx, w, h, car, marks = new Map(), picked = null) {
     [padL + l * (w - padL - padR) / (layers.length - 1), h / 2 + (i - (n - 1) / 2) * gaps[l]]));
   brainLayout = { nodes, gaps };
 
+  // locked blocks (a graft's traffic block, design F's lane and traffic blocks): a tint behind their neurons and a
+  // label, so you can watch the traffic one wake up when a car is near (with no car around every traffic sense is 0)
+  for (const block of [car.species?.mask ?? []].flat()) {
+    if (!nodes[block.layer]?.[block.to - 1]) continue;
+    const name = block.name ?? 'traffic', rgb = BLOCK_RGB[name];
+    const [x, top] = nodes[block.layer][block.from], bottom = nodes[block.layer][block.to - 1][1], r = radii[block.layer] + 4;
+    ctx.fillStyle = `rgba(${rgb}, 0.08)`;
+    ctx.strokeStyle = `rgba(${rgb}, 0.35)`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x - r, top - r, 2 * r, bottom - top + 2 * r, r);
+    ctx.fill();
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(x - r - 5, (top + bottom) / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = '500 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(${rgb}, 0.8)`;
+    ctx.fillText(name, 0, 0);
+    ctx.restore();
+  }
+
   // edges glow with the signal actually flowing through them right now. Thousands of them: each is filed under
   // its colour, opacity and width (rounded to steps too fine to see) and every group is stroked as one path
   ctx.lineCap = 'round';
   const groups = new Map(), wiring = huge ? strongestWiring(brain) : null, resting = new Path2D();
+  const edge = (from, to, weight, signal) => {
+    // the wide net has ~2,000 edges; thinner lines keep its active pathways readable
+    const alpha = Math.round(Math.min(0.9, (dense ? 0.012 : 0.025) + Math.abs(signal) * (dense ? 0.2 : 0.32)) * 50);
+    const width = Math.round(Math.min(dense ? 2 : 3.2, (dense ? 0.2 : 0.3) + Math.abs(weight) * (dense ? 0.4 : 0.7)) * 5);
+    const key = (signal >= 0 ? 0 : 100000) + alpha * 100 + width;
+    let path = groups.get(key);
+    if (!path) groups.set(key, path = new Path2D());
+    path.moveTo(...from);
+    path.lineTo(...to);
+  };
   for (let l = 1; l < layers.length; l++)
     for (let j = 0; j < layers[l]; j++)
       for (let i = 0; i < layers[l - 1]; i++) {
@@ -108,16 +144,17 @@ function drawBrain(ctx, w, h, car, marks = new Map(), picked = null) {
           }
           continue;
         }
-        // the wide net has ~2,000 edges; thinner lines keep its active pathways readable
-        const alpha = Math.round(Math.min(0.9, (dense ? 0.012 : 0.025) + Math.abs(signal) * (dense ? 0.2 : 0.32)) * 50);
-        const width = Math.round(Math.min(dense ? 2 : 3.2, (dense ? 0.2 : 0.3) + Math.abs(weight) * (dense ? 0.4 : 0.7)) * 5);
-        const key = (signal >= 0 ? 0 : 100000) + alpha * 100 + width;
-        let path = groups.get(key);
-        if (!path) groups.set(key, path = new Path2D());
-        const [x0, y0] = nodes[l - 1][i], [x1, y1] = nodes[l][j];
-        path.moveTo(x0, y0);
-        path.lineTo(x1, y1);
+        edge(nodes[l - 1][i], nodes[l][j], weight, signal);
       }
+  // design F's shortcuts: the first hidden layer straight to steer and gas
+  if (brain.shortcuts) {
+    const L = layers.length - 1;
+    for (let j = 0; j < layers[L]; j++)
+      for (let i = 0; i < layers[1]; i++) {
+        const weight = brain.weight(L, layers[L - 1] + i, j), signal = weight * brain.acts[1][i];
+        if (!huge || Math.abs(signal) >= 0.12) edge(nodes[1][i], nodes[L][j], weight, signal);
+      }
+  }
   if (wiring) {
     ctx.strokeStyle = 'rgba(160, 172, 196, 0.16)';
     ctx.lineWidth = 0.6;

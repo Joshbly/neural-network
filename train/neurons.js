@@ -28,6 +28,7 @@ const INPUT_NAMES = [
   'closing ▲', 'closing ▼', 'attack ◀▶', 'speed', 'slide', 'yaw', 'contact', 'track pos', 'heading', 'facing',
   ...E.LOOKAHEAD.map(d => `road +${d}`), 'draft', 'last steer', 'last gas', 'position', 'nose dmg', 'tail dmg',
   'track edge', 'paved edge', 'hit in ▲', 'banking', 'bank ahead', 'top steeper',
+  ...E.PACE_RAY_DEG.map(d => `pace ${arrow(d)}`), ...E.DRIFT_RAY_DEG.map(d => `drift ${arrow(d)}`),
 ];
 const car = d => I.cars + E.CAR_RAY_DEG.indexOf(d), wall = d => I.walls + E.WALL_RAY_DEG.indexOf(d);
 // racing situations, judged on what the pass sees (◀ and ▶ swap in the mirror pass); the last one looks ahead
@@ -316,6 +317,9 @@ function analyse(brain, runs) {
     const concepts = CONCEPTS.map(([name], c) => [name, shift(h, c), ...[0, 1].map(o => addsSeen[c] >= 20 ? adds[(h * C + c) * 2 + o] / addsSeen[c] : 0)])
       .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 4).filter(([, d]) => Math.abs(d) > 0.3);
     const nr = { l, j, mean: mean[h], sd: sd[h], sat: sat[h], inputs, concepts, push: [push[h * 2], push[h * 2 + 1]], plus: [plus[h * 2], plus[h * 2 + 1]], minus: [minus[h * 2], minus[h * 2 + 1]], imp: [imp[h * 2], imp[h * 2 + 1]] };
+    // a grafted traffic block's neurons (design T, train/graft.js) see only the traffic senses
+    const { mask } = brain;
+    if (mask && l === mask.layer && j >= mask.from && j < mask.to) nr.block = 'traffic';
     nr.label = labelOf(nr);
     return nr;
   });
@@ -386,8 +390,12 @@ async function main() {
   // shouldn't replace a full study)
   const studied = new Set(Object.entries(fs.existsSync(path.join(dir, 'neurons.json')) ? JSON.parse(fs.readFileSync(path.join(dir, 'neurons.json'))).brains : {})
     .filter(([, b]) => b.neurons.some(nr => nr.lesion)).map(([name]) => name));
-  const subjects = args.includes('--all') ? known.filter(b => !studied.has(b.name))
+  const chosen = args.includes('--all') ? known.filter(b => !studied.has(b.name))
     : names.length ? names.map(name => known.find(b => b.name === name) ?? (() => { throw new Error(`no brain called ${name} in ${slot}`); })()) : best;
+  // net() below is plain stacked layers: design F's shortcuts aren't in it yet
+  const subjects = chosen.filter(b => b.genes.length === E.geneCount(b.layers));
+  for (const b of chosen) if (!subjects.includes(b)) console.log(`skipping ${b.name}: the neuron lab can't analyse shortcut brains (design F) yet`);
+  if (!subjects.length) process.exit(0);
   const roster = state.population.map(b => ({ layers: b.layers, genes: Array.from(b.genes) }));
 
   // the panel: every oval twice, once from the front half of the grid and once from the back, against the

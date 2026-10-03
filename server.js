@@ -97,10 +97,11 @@ async function syncCloud() {
 
 // one 64-core machine with 24 GiB of memory
 const MACHINE_PER_HOUR = 3.21;
-async function startCloud(slot, hours, helpers) {
-  cloud = { slot, started: new Date().toISOString(), until: Date.now() + hours * 3600e3, hours, helpers, perHour: MACHINE_PER_HOUR * (1 + helpers) };
+// lastGen: stop once that generation is saved, even with time left (0: run for the hours)
+async function startCloud(slot, hours, helpers, lastGen = 0) {
+  cloud = { slot, started: new Date().toISOString(), until: Date.now() + hours * 3600e3, hours, helpers, perHour: MACHINE_PER_HOUR * (1 + helpers), ...lastGen && { lastGen } };
   writeJson(CLOUD, cloud);
-  const { out } = await launch(['start', '--slot', slot, '--hours', String(hours), '--helpers', String(helpers)]);
+  const { out } = await launch(['start', '--slot', slot, '--hours', String(hours), '--helpers', String(helpers), ...lastGen ? ['--until', String(lastGen)] : []]);
   fs.appendFileSync(path.join(slotDir(slot), 'cloud.log'), `${new Date().toISOString()} start: ${out}\n`);
   const callId = out.match(/fc-[A-Za-z0-9]+/)?.[0];
   if (!callId) {
@@ -210,7 +211,7 @@ async function slotAction(params) {
     await stopEngine();
     active = id;
     writeJson(ACTIVE, { id });
-    startCloud(id, hours, helpers);
+    startCloud(id, hours, helpers, Math.max(0, Math.round(+params.get('until') || 0)));
   } else if (action === 'train') {
     if (id !== active) {
       await stopEngine();

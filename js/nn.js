@@ -1,5 +1,7 @@
-// genes are laid out per neuron: [bias, w_from_0, w_from_1, ...]
-const geneCount = layers => layers.slice(1).reduce((n, size, l) => n + size * (layers[l] + 1), 0);
+// genes are laid out per neuron: [bias, w_from_0, w_from_1, ...]. A brain with shortcuts (design F) has outputs that
+// also read the first hidden layer directly: each output neuron is [bias, w from the last hidden layer, w from the first].
+const geneCount = (layers, shortcuts = false) =>
+  layers.slice(1).reduce((n, size, l) => n + size * (layers[l] + 1), 0) + (shortcuts ? layers[1] * layers.at(-1) : 0);
 
 // rational tanh approximation; plenty accurate for evolved weights and much cheaper than Math.tanh
 const squash = x => x <= -3 ? -1 : x >= 3 ? 1 : x * (27 + x * x) / (27 + 9 * x * x);
@@ -42,6 +44,10 @@ class Brain {
   constructor(layers, genes = Brain.random(layers)) {
     this.layers = layers;
     this.genes = genes;
+    // whether it has shortcuts is in its weight count, so every saved brain builds the same way as before
+    this.shortcuts = genes.length !== geneCount(layers);
+    if (this.shortcuts && genes.length !== geneCount(layers, true))
+      throw new Error(`${genes.length} weights fit neither a ${layers.join('-')} brain nor one with shortcuts`);
     this.acts = layers.map(n => new Float32Array(n));
     this.offsets = [0, 0];
     for (let l = 2; l < layers.length; l++) this.offsets[l] = this.offsets[l - 1] + layers[l - 1] * (layers[l - 2] + 1);
@@ -51,8 +57,8 @@ class Brain {
     this.held = null;
   }
 
-  static random(layers) {
-    return Float32Array.from({ length: geneCount(layers) }, gaussian);
+  static random(layers, shortcuts = false) {
+    return Float32Array.from({ length: geneCount(layers, shortcuts) }, gaussian);
   }
 
   think(inputs) {
@@ -91,25 +97,29 @@ class Brain {
   }
 
   // weights into the kernel's memory as float64, in blocks of 8 neurons (biases, then the 8 weights from
-  // each input, zero neurons padding the last block), with room for both passes' activations
+  // each input, zero neurons padding the last block), with room for both passes' activations. The kernel reads a
+  // layer's inputs as one run of memory, so a brain with shortcuts keeps its first hidden layer's activations right
+  // after its last one's: the outputs read both as a single run, in their weights' order.
   upload() {
-    const { layers, genes, offsets } = this, L = layers.length - 1;
+    const { layers, genes, offsets, shortcuts } = this, L = layers.length - 1;
     if (Math.max(...layers) > 1024) throw new Error('layers wider than 1024 neurons overflow the kernel scratch');
+    if (shortcuts && (layers[1] % 8 || layers[L - 1] % 8)) throw new Error('a brain with shortcuts needs hidden layers in whole blocks of 8');
     const blocks = layers.map(n => Math.ceil(n / 8));
     const width = layers.map((n, l) => l ? blocks[l] * 8 : Math.ceil(n / 4) * 4);
+    const ins = layers.map((n, l) => l === L && shortcuts ? layers[L - 1] + layers[1] : layers[l - 1]);
     let weights = 0;
-    for (let l = 1; l <= L; l++) weights += blocks[l] * 8 * (layers[l - 1] + 1);
+    for (let l = 1; l <= L; l++) weights += blocks[l] * 8 * (ins[l] + 1);
     const actFloats = width.reduce((a, b) => a + b, 0), descBytes = 16 * Math.ceil((1 + 7 * L) / 4);
     const { f32, f64, i32 } = NN, base = claim(descBytes + 8 * weights + 8 * actFloats);
     const desc = base / 4, actsAt = [], mirrorAt = [];
+    const order = shortcuts ? [0, ...Array.from({ length: L - 2 }, (_, k) => k + 2), 1, L] : layers.map((_, l) => l);
     let w = (base + descBytes) / 8, p = (base + descBytes) / 4 + 2 * weights;
-    for (let l = 0; l <= L; l++) actsAt[l] = (p += l ? width[l - 1] : 0);
-    p += width[L];
-    for (let l = 0; l <= L; l++) mirrorAt[l] = (p += l ? width[l - 1] : 0);
+    for (const l of order) [actsAt[l], p] = [p, p + width[l]];
+    for (const l of order) [mirrorAt[l], p] = [p, p + width[l]];
 
     i32[desc] = L;
     for (let l = 1; l <= L; l++) {
-      const nIn = layers[l - 1], nOut = layers[l], span = nIn + 1, d = desc + 1 + 7 * (l - 1);
+      const nIn = ins[l], nOut = layers[l], span = nIn + 1, d = desc + 1 + 7 * (l - 1);
       i32[d] = 8 * w;
       i32[d + 1] = nIn;
       i32[d + 2] = blocks[l];
@@ -138,24 +148,28 @@ class Brain {
   }
 
   thinkJS(inputs, held) {
-    const g = this.genes, acts = this.acts;
+    const g = this.genes, acts = this.acts, L = acts.length - 1;
     // brains from before newer inputs were appended read just the inputs they know
     acts[0].set(inputs.length > acts[0].length ? inputs.subarray(0, acts[0].length) : inputs);
     let k = 0;
-    for (let l = 1; l < acts.length; l++) {
-      const src = acts[l - 1], dst = acts[l];
+    for (let l = 1; l <= L; l++) {
+      const src = acts[l - 1], dst = acts[l], shortcut = this.shortcuts && l === L ? acts[1] : null;
       for (let j = 0; j < dst.length; j++) {
         let sum = g[k++];
         for (let i = 0; i < src.length; i++) sum += src[i] * g[k++];
+        if (shortcut) for (let i = 0; i < shortcut.length; i++) sum += shortcut[i] * g[k++];
         dst[j] = squash(sum);
       }
       if (held) for (const [hl, j, v] of held) if (hl === l) dst[j] = v;
     }
-    return acts[acts.length - 1];
+    return acts[L];
   }
 
+  // input i of layer l's neuron j; for the outputs of a brain with shortcuts, i past the last hidden layer reaches
+  // into the first
   weight(l, i, j) {
-    return this.genes[this.offsets[l] + j * (this.layers[l - 1] + 1) + 1 + i];
+    const { layers } = this, span = layers[l - 1] + 1 + (this.shortcuts && l === layers.length - 1 ? layers[1] : 0);
+    return this.genes[this.offsets[l] + j * span + 1 + i];
   }
 }
 

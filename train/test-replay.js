@@ -20,7 +20,8 @@ function replay(scenario, drivers) {
 let checked = 0, matched = 0;
 const tourney = read('tournament.json');
 if (tourney) {
-  const byName = new Map(tourney.population.map(a => [a.name, a]));
+  // an experiment save's tournaments seat its frozen sparring partners too (train/evolve.js tournamentSparring)
+  const byName = new Map([...tourney.population, ...tourney.sparring ?? []].map(a => [a.name, a]));
   for (const [k, race] of tourney.races.entries()) {
     const order = replay(race.scenario, race.grid.map(name => byName.get(name))).map(slot => race.grid[slot]);
     const same = order.join() === race.order.join();

@@ -1,0 +1,24 @@
+NASCAR · traffic graft (E7·8), generation 77 (5 trained since the graft)
+
+1. tournaments: race points per race (wins), downforce lost
+  gen 72: T 0.063 (7) · E 0.065 (9) · T-E -0.002 · damage T 26% E 26%
+  gen 73: T 0.105 (13) · E 0.076 (5) · T-E +0.029 · damage T 19% E 20%
+  gen 74: T 0.088 (4) · E 0.074 (8) · T-E +0.014 · damage T 20% E 19%
+  gen 75: T 0.078 (10) · E 0.012 (5) · T-E +0.066 · damage T 20% E 20%
+  gen 76: T 0.077 (5) · E 0.076 (5) · T-E +0.001 · damage T 19% E 20%
+  gen 77: T 0.049 (6) · E 0.103 (13) · T-E -0.054 · damage T 20% E 20%
+
+2. rating ladder (best of each design): E7·8/8@72 1131±18, T7·8/3@72 1133±23, E7·8/8@75 1075±22, T7·8/7@75 1076±22
+
+3. evaluation: 192 races of 40 cars (the experiment plus its sparring partners)
+  points per race: T 0.046 · E 0.042 · T-E +0.003 ± 0.010 (0.3 standard errors) · sets 0.044/0.048 and 0.048/0.037
+  best T T7·8/7 0.095 vs best E E7·8/10 0.073: T ahead in 52% of the 192 races
+  finished T 32% E 32% · wrecked or parked T 68% E 68% · downforce lost T 23% E 23%
+
+4. mechanism: the block's connections onward 0.042 0.043 0.044 0.043 0.043 0.042 0.044 0.044 0.044 0.043 (mean 0.043; started at 0)
+  best T sense ranks (of 44): hit-in #38 · closing ahead #37 · closing behind #41 · best car sensor #15
+  best E sense ranks (of 44): hit-in #44 · closing ahead #40 · closing behind #42 · best car sensor #15
+
+checkpoint: the block is being used (connections onward 0.043 ≥ 0.02), no change
+
+wrote /Users/josh-profound/neural-network/models/slots/slot-4/graft-report.json
