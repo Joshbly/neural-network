@@ -79,6 +79,29 @@ function strongestWiring(brain) {
   return brain.wiring = wiring;
 }
 
+// The brain view's layout. Every layer is split into groups (the inputs by kind, a design's locked blocks) that sit a
+// little apart; each neuron gets at least a minimum spacing (the inputs enough for their labels); the canvas is as
+// tall as the busiest layer needs, never shorter than the panel's usual height, and each layer spreads to fill it.
+const BRAIN_MIN_H = 480, BRAIN_PAD_Y = 10, NODE_GAP = { inputs: 9, neurons: 3.5, most: 16 }, GROUP_GAP = { inputs: 5, neurons: 12 };
+// each layer's groups as sizes: runs of one input colour, then a design's blocks (whole layers otherwise)
+function brainGroups(layers, mask) {
+  return layers.map((n, l) => {
+    if (l === 0) return Array.from({ length: n }, (_, i) => INPUTS[i][1]).reduce((runs, kind, i, all) => (i && kind === all[i - 1] ? runs[runs.length - 1]++ : runs.push(1), runs), []);
+    const blocks = [mask ?? []].flat().filter(b => b.layer === l).sort((a, b) => a.from - b.from), sizes = [];
+    let at = 0;
+    for (const { from, to } of blocks) {
+      if (from > at) sizes.push(from - at);
+      sizes.push(to - from);
+      at = to;
+    }
+    if (at < n) sizes.push(n - at);
+    return sizes;
+  });
+}
+const layerSpan = (sizes, gap, groupGap) => (sizes.reduce((a, b) => a + b, 0) - 1) * gap + (sizes.length - 1) * groupGap;
+const brainHeight = (layers, mask) => Math.ceil(Math.max(BRAIN_MIN_H, ...brainGroups(layers, mask).map((sizes, l) =>
+  layerSpan(sizes, l ? NODE_GAP.neurons : NODE_GAP.inputs, l ? GROUP_GAP.neurons : GROUP_GAP.inputs) + 2 * BRAIN_PAD_Y)));
+
 // marks: input index → colour, ringed in the drawing (the X-ray's top inputs); picked: the neuron being inspected
 function drawBrain(ctx, w, h, car, marks = new Map(), picked = null) {
   const { brain } = car;
@@ -86,12 +109,23 @@ function drawBrain(ctx, w, h, car, marks = new Map(), picked = null) {
   if (!brain) return;
   const { layers } = brain, edges = layers.slice(1).reduce((n, size, l) => n + size * layers[l], 0);
   const dense = edges > 1000, huge = edges > 3000;
-  const padL = 66, padR = 96, padY = 10;
-  // each layer spreads over the full height, so a 128-wide hidden layer can't squash the labelled inputs
-  const gaps = layers.map(n => Math.min(16, (h - 2 * padY) / Math.max(1, n - 1)));
+  const padL = 66, padR = 96, padY = BRAIN_PAD_Y;
+  // each layer spreads over the full height, groups a little apart, so a 208-wide hidden layer can't squash the
+  // labelled inputs or run its blocks together
+  const clusters = brainGroups(layers, car.species?.mask);
+  const gaps = clusters.map((sizes, l) => {
+    const n = sizes.reduce((a, b) => a + b, 0), groupGap = l ? GROUP_GAP.neurons : GROUP_GAP.inputs;
+    return Math.min(NODE_GAP.most, (h - 2 * padY - (sizes.length - 1) * groupGap) / Math.max(1, n - 1));
+  });
   const radii = gaps.map(g => Math.max(1.2, Math.min(7, g * 0.36)));
-  const nodes = layers.map((n, l) => Array.from({ length: n }, (_, i) =>
-    [padL + l * (w - padL - padR) / (layers.length - 1), h / 2 + (i - (n - 1) / 2) * gaps[l]]));
+  const nodes = clusters.map((sizes, l) => {
+    const x = padL + l * (w - padL - padR) / (layers.length - 1), groupGap = l ? GROUP_GAP.neurons : GROUP_GAP.inputs, column = [];
+    let y = h / 2 - layerSpan(sizes, gaps[l], groupGap) / 2 - gaps[l];
+    sizes.forEach((size, g) => {
+      for (let k = 0; k < size; k++) column.push([x, y += gaps[l] + (g && !k ? groupGap : 0)]);
+    });
+    return column;
+  });
   brainLayout = { nodes, gaps };
 
   // locked blocks (a graft's traffic block, design F's lane and traffic blocks): a tint behind their neurons and a

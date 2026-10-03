@@ -232,6 +232,12 @@ function drawScene(heat) {
       xrayShown.steerBy.forEach(e => marks.set(e.i, '#38e1ff'));
       xrayShown.gasBy.forEach(e => marks.has(e.i) || marks.set(e.i, e.gas > 0 ? '#4dff9a' : '#ff4d4d'));
     }
+    // the panel grows to fit the brain being shown (a 208-wide first layer needs more room than a 128)
+    const tall = thinker.brain ? brainHeight(thinker.brain.layers, thinker.species?.mask) : panels.brain.h;
+    if (Math.abs(panels.brain.h - tall) > 1) {
+      $('#brain').style.height = `${tall}px`;
+      panels.brain = fitCanvas($('#brain'));
+    }
     drawBrain(panels.brain.ctx, panels.brain.w, panels.brain.h, thinker, marks, pickedNeuron);
     const sp = thinker.species, lineage = sp.parent ? ` · from ${sp.parent}, gen ${sp.born}` : sp.frozen ? ' · original, frozen' : '';
     const title = `${race ? `${nameOf(thinker)}, nearest rival` : `Car ${nameOf(thinker)}`} · ${describe(sp)}${lineage}`;
