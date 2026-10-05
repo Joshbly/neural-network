@@ -1,0 +1,1 @@
+{"name":"NASCAR · PPO smooth steering","created":"2026-10-05T17:25:44.381Z","from":"generation 77 of NASCAR · PPO race distance, trained on with a steering smoothness term","tracks":"nascar","cars":"stock","start":"ppo","design":"F","task":"6 km time trials on the 32 ovals"}

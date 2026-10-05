@@ -51,6 +51,11 @@ const RATE_OVALS = ['daytona', 'talladega', 'atlanta', 'charlotte', 'michigan', 
 // has time to form and a driver can wait for the move instead of going all in at once. Duels and time trials
 // are 6 km.
 const META = (() => { try { return JSON.parse(fs.readFileSync(path.join(DIR, 'meta.json'), 'utf8')); } catch { return {}; } })();
+// a gradient-learning save is one policy trained by train/ppo/learner.py: founding twenty brains into it would wreck it
+if (META.start === 'ppo') {
+  console.error(`[evolve] ${DIR} is a gradient-learning save: it trains on Modal (train/ppo/learner.py), not with evolution`);
+  process.exit(1);
+}
 const MODE = { tracks: META.tracks ?? 'normal', cars: META.cars ?? (META.tracks === 'nascar' ? 'stock' : 'normal') };
 const NASCAR = MODE.tracks === 'nascar', CARS = MODE.cars === 'normal' && !NASCAR ? {} : { cars: MODE.cars };
 const SEASON_M = 24000, PRACTICE_M = SEASON_M, DUEL_M = 6000, SOLO_M = 6000, NASCAR_FIELD = 40;

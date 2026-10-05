@@ -300,17 +300,21 @@ function drawChart(ctx, w, h, { series, yMin, yMax, format, markers = [], ref, e
     ctx.lineTo(X(gen), h - pad.b);
     ctx.stroke();
   }
-  if (ref) {
-    ctx.strokeStyle = '#ffd166';
+  // one reference line or several: labels top to bottom, each pushed below the one before if they'd overlap, and
+  // the whole stack lifted if that runs it off the bottom
+  const refs = [ref ?? []].flat().sort((a, b) => b.value - a.value), labelY = [];
+  refs.forEach((r, k) => labelY.push(Math.max(Y(r.value) - 2, k ? labelY[k - 1] + 11 : -Infinity)));
+  const lift = Math.max(0, (labelY.at(-1) ?? 0) - (h - pad.b));
+  refs.forEach((r, k) => {
+    ctx.strokeStyle = ctx.fillStyle = r.color ?? '#ffd166';
     ctx.beginPath();
-    ctx.moveTo(pad.l, Y(ref.value));
-    ctx.lineTo(w - pad.r, Y(ref.value));
+    ctx.moveTo(pad.l, Y(r.value));
+    ctx.lineTo(w - pad.r, Y(r.value));
     ctx.stroke();
-    ctx.fillStyle = '#ffd166';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(ref.label, w - pad.r, Y(ref.value) - 2);
-  }
+    ctx.fillText(r.label, w - pad.r, labelY[k] - lift);
+  });
   ctx.setLineDash([]);
 
   // uncertainty bands, under every line: [x, low, high]

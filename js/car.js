@@ -236,6 +236,7 @@ const SURFACE_GRIP = [1, 0.96, 0.45, 0.35, 0.9, 0.5];
 const SURFACE_DRAG = [0, 0, 0.3 * G, 0.65 * G, 0, 0.5 * G];
 
 const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+const LOG_SQRT_2PI = 0.5 * Math.log(2 * Math.PI);
 const WALL_COS = WALL_RAYS.map(a => dcos(a)), WALL_SIN = WALL_RAYS.map(a => dsin(a));
 const CAR_COS = CAR_RAYS.map(a => dcos(a)), CAR_SIN = CAR_RAYS.map(a => dsin(a));
 // the car "ahead" for a sector-sensing car: the nearest within 25 degrees of straight ahead
@@ -318,6 +319,10 @@ class Car {
     const { x, y, angle } = track.gridSlot(slot);
     Object.assign(this, { x, y, angle, vx: 0, vy: 0, spin: 0, slip: 0, frontLoose: false, rearLoose: false, wheelspin: 0, steer: 0, throttle: 0, draft: 0, tow: 0, pushed: 0, sideDrafted: 0, tailing: 0, airOff: 0, twoWide: 0, position: 0 });
     this.action = new Float32Array(2);
+    // with exploration on (tryAround): the decision itself, and the try before clamping
+    this.mean = new Float64Array(2);
+    this.raw = new Float64Array(2);
+    this.logp = 0;
     this.running = true;
     this.finished = this.retired = this.braked = this.touchingWall = this.elite = this.human = false;
     // tailSteps: time glued to the bumper of the car ahead (within two lengths, weighted by how close)
@@ -643,6 +648,32 @@ class Car {
     const pair = brain.thinkPair(mirrored, inputs);
     this.action[0] = (pair[2] - pair[0]) / 2;
     this.action[1] = (pair[3] + pair[1]) / 2;
+    if (this.explore) this.tryAround(this.explore);
+    this.onDecide?.(this);
+  }
+
+  // Gradient learning: try an action near the decision. explore { sigma: [steer, gas], seed, hold }: a Gaussian around
+  // the decision (mean), drawn from the car's own seeded stream so the same seed replays the same episode, then
+  // clamped to the controls (drive() leaves throttle unclamped). logp: how likely the unclamped try was.
+  // hold: a fresh draw every hold decisions, kept in between. Noise drawn fresh 30 times a second is dither, which the
+  // car's rate-limited wheel and tyres turn into damping, and a policy trained under it learns to lean on that and
+  // drives worse without it; an offset held for a quarter second is a real variation of the line instead.
+  tryAround({ sigma, seed, hold = 1 }) {
+    this.exploreRng ??= mulberry32(seed);
+    this.exploreG ??= new Float64Array(2);
+    if (this.exploreAt === undefined || ++this.exploreAt >= hold) {
+      this.exploreAt = 0;
+      this.exploreG.set(gaussianPair(this.exploreRng));
+    }
+    const g = this.exploreG;
+    let logp = 0;
+    for (let k = 0; k < 2; k++) {
+      this.mean[k] = this.action[k];
+      this.raw[k] = this.mean[k] + sigma[k] * g[k];
+      this.action[k] = clamp(this.raw[k], -1, 1);
+      logp -= 0.5 * g[k] * g[k] + Math.log(sigma[k]) + LOG_SQRT_2PI;
+    }
+    this.logp = logp;
   }
 
   drive(steer, throttle) {

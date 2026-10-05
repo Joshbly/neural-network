@@ -33,8 +33,10 @@ if (!validId(active)) active = slotIds()[0] || null;
 
 // ---- the engine: one child process, training the active slot ----
 let engine = null;
+const learnsByGradient = id => readJson(path.join(slotDir(id), 'meta.json'))?.start === 'ppo';
 function startEngine() {
   if (engine || !active) return;
+  if (learnsByGradient(active)) return console.log(`${active} is a gradient-learning save: it trains on Modal, not with the local engine`);
   const dir = slotDir(active), out = fs.openSync(path.join(dir, 'evolve.log'), 'a');
   engine = spawn(process.execPath, [path.join(ROOT, 'train', 'evolve.js'), '--dir', dir], { cwd: ROOT, stdio: ['ignore', out, out] });
   const me = engine;
@@ -77,6 +79,11 @@ async function syncCloud() {
   syncing = true;
   const { slot } = cloud, before = readJson(path.join(slotDir(slot), 'summary.json'))?.generation;
   const round = p => p && `${p.generation}:${p.round}:${p.phase}`, was = round(readJson(path.join(slotDir(slot), 'progress.json')));
+  // gradient learning: a line of metrics an iteration
+  if (cloud.kind === 'ppo') {
+    fs.mkdirSync(path.join(slotDir(slot), 'ppo'), { recursive: true });
+    await pull(slot, 'ppo/metrics.jsonl');
+  }
   await pull(slot, 'progress.json');
   // each round's starting weights, so the app can show the practice that's running on Modal
   if (round(readJson(path.join(slotDir(slot), 'progress.json'))) !== was) await pull(slot, 'live.json');
@@ -95,13 +102,17 @@ async function syncCloud() {
   syncing = false;
 }
 
-// one 64-core machine with 24 GiB of memory
-const MACHINE_PER_HOUR = 3.21;
-// lastGen: stop once that generation is saved, even with time left (0: run for the hours)
+// one 64-core machine with 24 GiB of memory; gradient learning's one L4 GPU with 16 cores and 32 GiB
+const MACHINE_PER_HOUR = 3.21, PPO_PER_HOUR = 1.81;
+// lastGen: stop once that generation (gradient learning: that many iterations) is saved, even with time left (0: run for
+// the hours). A gradient-learning save (meta start 'ppo') runs on its own machine, no helpers.
 async function startCloud(slot, hours, helpers, lastGen = 0) {
-  cloud = { slot, started: new Date().toISOString(), until: Date.now() + hours * 3600e3, hours, helpers, perHour: MACHINE_PER_HOUR * (1 + helpers), ...lastGen && { lastGen } };
+  const kind = readJson(path.join(slotDir(slot), 'meta.json'))?.start === 'ppo' ? 'ppo' : 'train';
+  if (kind === 'ppo') helpers = 0;
+  cloud = { slot, kind, started: new Date().toISOString(), until: Date.now() + hours * 3600e3, hours, helpers,
+    perHour: kind === 'ppo' ? PPO_PER_HOUR : MACHINE_PER_HOUR * (1 + helpers), ...lastGen && { lastGen } };
   writeJson(CLOUD, cloud);
-  const { out } = await launch(['start', '--slot', slot, '--hours', String(hours), '--helpers', String(helpers), ...lastGen ? ['--until', String(lastGen)] : []]);
+  const { out } = await launch(['start', '--slot', slot, '--hours', String(hours), '--helpers', String(helpers), '--kind', kind, ...lastGen ? ['--until', String(lastGen)] : []]);
   fs.appendFileSync(path.join(slotDir(slot), 'cloud.log'), `${new Date().toISOString()} start: ${out}\n`);
   const callId = out.match(/fc-[A-Za-z0-9]+/)?.[0];
   if (!callId) {
@@ -137,8 +148,10 @@ async function endCloud() {
   cloud.ending = true;
   syncing = false;
   await syncCloud();
-  // bring home every generation the run saved, including any that finished between syncs
+  // bring home every generation the run saved, including any that finished between syncs, and gradient learning's
+  // checkpoint (a relaunch resumes from it)
   await modal(['volume', 'get', '--force', VOLUME, `/slots/${cloud.slot}/generations`, slotDir(cloud.slot)]);
+  if (cloud.kind === 'ppo') await modal(['volume', 'get', '--force', VOLUME, `/slots/${cloud.slot}/ppo`, slotDir(cloud.slot)]);
   console.log(`Modal training of ${cloud.slot} finished`);
   cloud = null;
   fs.rmSync(CLOUD, { force: true });
@@ -164,14 +177,15 @@ async function slotAction(params) {
   if (action === 'new') {
     const ids = slotIds();
     if (ids.length >= MAX_SLOTS) return [409, { error: `All ${MAX_SLOTS} slots are full. Delete one first.` }];
-    const from = params.get('from'), source = from === 'originals' || from === 'scratch' ? null : from;
+    const from = params.get('from'), source = ['originals', 'scratch', 'ppo'].includes(from) ? null : from;
+    if (from === 'ppo' && (params.get('tracks') ?? 'nascar') !== 'nascar') return [400, { error: 'Gradient learning runs on the NASCAR ovals only.' }];
     if (source && !validId(source)) return [400, { error: 'No such slot to copy.' }];
     const free = Array.from({ length: MAX_SLOTS }, (_, i) => `slot-${i + 1}`).find(s => !ids.includes(s)), dir = slotDir(free);
     fs.mkdirSync(path.join(dir, 'generations'), { recursive: true });
     // a save races normal tracks or the NASCAR ovals, in normal cars or stock cars; a copy keeps its source's
     // unless told otherwise
     const sourceMeta = source ? readJson(path.join(slotDir(source), 'meta.json')) || {} : {};
-    const tracks = params.get('tracks') ?? sourceMeta.tracks ?? 'normal';
+    const tracks = params.get('tracks') ?? sourceMeta.tracks ?? (from === 'ppo' ? 'nascar' : 'normal');
     if (!['normal', 'nascar'].includes(tracks)) return [400, { error: 'Unknown track set.' }];
     const cars = params.get('cars') ?? (tracks === (sourceMeta.tracks ?? 'normal') ? sourceMeta.cars : null) ?? (tracks === 'nascar' ? 'stock' : 'normal');
     if (!['normal', 'stock'].includes(cars)) return [400, { error: 'Unknown cars.' }];
@@ -179,6 +193,8 @@ async function slotAction(params) {
     const meta = { name: cleanName(params.get('name')) || `${label} ${free.slice(5)}`, created: new Date().toISOString(), from: 'the originals', tracks, cars };
     // random brains: the engine founds the slot from this seed instead of the originals
     if (from === 'scratch') Object.assign(meta, { from: 'scratch (random brains)', start: 'scratch', seed: 1 + Math.floor(Math.random() * 1e6) });
+    // gradient learning (train/ppo): one design F policy from random weights, trained on Modal with PPO
+    if (from === 'ppo') Object.assign(meta, { from: 'scratch: design F, gradient learning (PPO) on time trials', start: 'ppo', design: 'F', task: '6 km time trials on the 32 ovals', cars: 'stock' });
     if (source) {
       // a copy starts from the source's latest generation and carries its history forward
       const state = readJson(path.join(slotDir(source), 'state.json'));
@@ -218,6 +234,8 @@ async function slotAction(params) {
       active = id;
       writeJson(ACTIVE, { id });
     }
+    // a gradient-learning save is only loaded, to watch: it trains on Modal, never with the local engine
+    if (learnsByGradient(id)) return [200, { ok: true, loaded: 'gradient-learning saves train on Modal, not with the local engine' }];
     startEngine();
   } else if (action === 'rename') {
     const file = path.join(slotDir(id), 'meta.json'), meta = readJson(file) || {};

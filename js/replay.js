@@ -1,15 +1,50 @@
 // Everything it takes to run one of the engine's races again, exactly: the engine (train/lib.js, evolve.js)
 // and the app both use these, so a race replayed in the app is the race the engine ran, car for car.
 
+// two standard Gaussians from a seeded stream (Box-Muller in the deterministic math, so every machine draws the
+// same), into a reused pair
+const PAIR = new Float64Array(2);
+function gaussianPair(rng, out = PAIR) {
+  const r = Math.sqrt(-2 * dlog(1 - rng())), a = 2 * Math.PI * rng();
+  out[0] = r * dcos(a);
+  out[1] = r * dsin(a);
+  return out;
+}
+
 // the noise that makes each practice copy of a brain: deterministic from a seed, so it never has to be shipped
 function noiseVector(seed, n) {
   const rng = mulberry32(seed), out = new Float32Array(n);
   for (let i = 0; i < n; i += 2) {
-    const r = Math.sqrt(-2 * dlog(1 - rng())), a = 2 * Math.PI * rng();
-    out[i] = r * dcos(a);
-    if (i + 1 < n) out[i + 1] = r * dsin(a);
+    const g = gaussianPair(rng);
+    out[i] = g[0];
+    if (i + 1 < n) out[i + 1] = g[1];
   }
   return out;
+}
+
+// the seed of a car's exploration noise (Car.tryAround) in episode `episode` of rollout worker `worker` in learning
+// iteration `iteration` (gradient learning)
+const explorationSeed = (iteration, worker, episode) =>
+  (Math.imul(iteration + 1, 2654435761) ^ Math.imul(worker + 1, 40503) ^ Math.imul(episode + 1, 97531) ^ 0x9e3779b9) >>> 0;
+
+// Gradient learning's rolling starts: a share of practice time trials begin somewhere round the oval, already at
+// speed and off the wall, so the brain learns to take every corner from many states instead of polishing one line
+// from the grid (from the grid, a random brain slides along the outside wall and learning starts there). The start
+// comes from the episode's seed, so the app can race the episode again exactly. null: from the grid.
+function rollingStart(seed, track, share) {
+  if (!share || !track.nascar) return null;
+  const rng = mulberry32((seed ^ 0x5bd1e995) >>> 0);
+  if (rng() >= share) return null;
+  return { arc: rng() * track.length, lateral: (rng() * 1.2 - 0.6) * track.halfWidth, speed: (0.3 + 0.45 * rng()) * track.refSpeed };
+}
+// put a car at a start: heading down the track at that speed, the distance it covers counted from there
+function placeAt(car, track, { arc, lateral, speed }) {
+  const [x, y] = track.pointAt(arc, lateral), angle = track.headingAt(((arc % track.length) + track.length) % track.length);
+  Object.assign(car, { x, y, angle, vx: speed * dcos(angle), vy: speed * dsin(angle) });
+  car.lastArc = track.progressAt(x, y);
+  car.progress = car.lastArc > track.length / 2 ? car.lastArc - track.length : car.lastArc;
+  car.gridOffset = -car.progress;
+  car.checkpoint = car.progress;
 }
 
 // gs: per-weight nudge scale from geneScale (0 keeps a locked connection exactly 0); null nudges every weight alike

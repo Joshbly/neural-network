@@ -1,0 +1,714 @@
+{
+ "panel": "all 32 ovals, 6 km each, no exploration (train/lib.js timeTrial)",
+ "made": "2026-10-04T17:36:01.851Z",
+ "brains": [
+  {
+   "name": "F5@40",
+   "design": "F",
+   "from": "E vs F, gen 40: best F (evolution)",
+   "points": 1.3488817119750542,
+   "finished": 30,
+   "ovals": 32,
+   "pace": 1.0811299742192082,
+   "aero": 0.19995651736680084,
+   "trials": [
+    {
+     "trackId": "daytona",
+     "score": 1.4956748067059635,
+     "finished": true,
+     "pace": 1.0489973458556718,
+     "aero": 0
+    },
+    {
+     "trackId": "talladega",
+     "score": 1.49764782514294,
+     "finished": true,
+     "pace": 1.042127715773384,
+     "aero": 0
+    },
+    {
+     "trackId": "atlanta",
+     "score": 1.5017983524770855,
+     "finished": true,
+     "pace": 1.0708553157873477,
+     "aero": 0
+    },
+    {
+     "trackId": "michigan",
+     "score": 1.512800079689212,
+     "finished": true,
+     "pace": 1.0358811554866616,
+     "aero": 0
+    },
+    {
+     "trackId": "pocono",
+     "score": 1.370059231251898,
+     "finished": true,
+     "pace": 1.1729437342233984,
+     "aero": 0.2392148101921755
+    },
+    {
+     "trackId": "indianapolis",
+     "score": 1.4777211429115598,
+     "finished": true,
+     "pace": 1.07787599930973,
+     "aero": 0.06079466492448593
+    },
+    {
+     "trackId": "fontana",
+     "score": 0.21324278150440557,
+     "finished": false,
+     "pace": null,
+     "aero": 0.7251583265997591
+    },
+    {
+     "trackId": "charlotte",
+     "score": 1.5242987688497236,
+     "finished": true,
+     "pace": 1.0256120996450055,
+     "aero": 0.013647131764706999
+    },
+    {
+     "trackId": "texas",
+     "score": 1.5082745538683167,
+     "finished": true,
+     "pace": 1.072978423994954,
+     "aero": 0.017887593895062448
+    },
+    {
+     "trackId": "lasvegas",
+     "score": 1.5226076135251116,
+     "finished": true,
+     "pace": 1.0373410115925692,
+     "aero": 0.01177713219056431
+    },
+    {
+     "trackId": "kansas",
+     "score": 1.5316742081447963,
+     "finished": true,
+     "pace": 1.0131539945147174,
+     "aero": 0
+    },
+    {
+     "trackId": "homestead",
+     "score": 1.5295248126135468,
+     "finished": true,
+     "pace": 1.0025844551645509,
+     "aero": 0.03262734636906395
+    },
+    {
+     "trackId": "chicagoland",
+     "score": 1.532189209032186,
+     "finished": true,
+     "pace": 1.0107311714686193,
+     "aero": 0.007787470628328408
+    },
+    {
+     "trackId": "kentucky",
+     "score": 1.4777142706286415,
+     "finished": true,
+     "pace": 1.1422278306595075,
+     "aero": 0.040715558523876316
+    },
+    {
+     "trackId": "nashville",
+     "score": 1.406445220925097,
+     "finished": true,
+     "pace": 1.1178814024153407,
+     "aero": 0.15013713508697324
+    },
+    {
+     "trackId": "darlington",
+     "score": 1.515627648819717,
+     "finished": true,
+     "pace": 0.9960890406026164,
+     "aero": 0.05942158753268467
+    },
+    {
+     "trackId": "rockingham",
+     "score": 1.4358600135459456,
+     "finished": true,
+     "pace": 1.044917717604427,
+     "aero": 0.14813008738635947
+    },
+    {
+     "trackId": "dover",
+     "score": 1.4702016544166234,
+     "finished": true,
+     "pace": 1.0654789869471453,
+     "aero": 0.12273619127488145
+    },
+    {
+     "trackId": "phoenix",
+     "score": 1.3528323063967178,
+     "finished": true,
+     "pace": 1.1461790317650657,
+     "aero": 0.36912403220349677
+    },
+    {
+     "trackId": "newhampshire",
+     "score": 1.3017252481171444,
+     "finished": true,
+     "pace": 1.1488250369026864,
+     "aero": 0.4515842348789256
+    },
+    {
+     "trackId": "gateway",
+     "score": 1.357464256863843,
+     "finished": true,
+     "pace": 1.1315081206398876,
+     "aero": 0.41936415634525004
+    },
+    {
+     "trackId": "milwaukee",
+     "score": 1.468982615463361,
+     "finished": true,
+     "pace": 0.9781950986724676,
+     "aero": 0.2546696799630974
+    },
+    {
+     "trackId": "iowa",
+     "score": 1.4555060114960199,
+     "finished": true,
+     "pace": 1.0801912406045306,
+     "aero": 0.17193168382070734
+    },
+    {
+     "trackId": "richmond",
+     "score": 1.389665970798823,
+     "finished": true,
+     "pace": 1.1036577724504386,
+     "aero": 0.34963336022259484
+    },
+    {
+     "trackId": "bristol",
+     "score": 1.3588090339881829,
+     "finished": true,
+     "pace": 1.0651079127059442,
+     "aero": 0.35568686251743786
+    },
+    {
+     "trackId": "martinsville",
+     "score": -0.19931303578684512,
+     "finished": false,
+     "pace": null,
+     "aero": 0.4088949338766348
+    },
+    {
+     "trackId": "northwilkesboro",
+     "score": 1.3885731578303466,
+     "finished": true,
+     "pace": 1.099793697420056,
+     "aero": 0.3291392820168204
+    },
+    {
+     "trackId": "irp",
+     "score": 1.43096787836195,
+     "finished": true,
+     "pace": 1.0734393312725357,
+     "aero": 0.2386230351784535
+    },
+    {
+     "trackId": "bowmangray",
+     "score": 1.2865976252569395,
+     "finished": true,
+     "pace": 1.2671976504605622,
+     "aero": 0.30758085558615833
+    },
+    {
+     "trackId": "memphis",
+     "score": 1.3087462617641121,
+     "finished": true,
+     "pace": 1.1544567918826227,
+     "aero": 0.4748015404150624
+    },
+    {
+     "trackId": "fairgrounds",
+     "score": 1.3453325678795924,
+     "finished": true,
+     "pace": 1.0620980299619192,
+     "aero": 0.4349878916632617
+    },
+    {
+     "trackId": "pikespeak",
+     "score": 1.3949626907187873,
+     "finished": true,
+     "pace": 1.1455721107918788,
+     "aero": 0.20255197068080422
+    }
+   ]
+  },
+  {
+   "name": "E9·3@40",
+   "design": "E",
+   "from": "E vs F, gen 40: best E",
+   "points": 1.3139191043229705,
+   "finished": 29,
+   "ovals": 32,
+   "pace": 1.0545888005867732,
+   "aero": 0.22195834757534924,
+   "trials": [
+    {
+     "trackId": "daytona",
+     "score": 1.4988134425476538,
+     "finished": true,
+     "pace": 1.042927930161232,
+     "aero": 0
+    },
+    {
+     "trackId": "talladega",
+     "score": 1.4977925743649128,
+     "finished": true,
+     "pace": 1.043078851504239,
+     "aero": 0
+    },
+    {
+     "trackId": "atlanta",
+     "score": 1.5059751711335423,
+     "finished": true,
+     "pace": 1.0600712743393381,
+     "aero": 0
+    },
+    {
+     "trackId": "michigan",
+     "score": 1.5115618705425067,
+     "finished": true,
+     "pace": 1.0458371997945282,
+     "aero": 0.00495283658682133
+    },
+    {
+     "trackId": "pocono",
+     "score": 1.4591322218807072,
+     "finished": true,
+     "pace": 1.062361027945116,
+     "aero": 0.1617213311998308
+    },
+    {
+     "trackId": "indianapolis",
+     "score": 1.4804858729278128,
+     "finished": true,
+     "pace": 1.0690576305299775,
+     "aero": 0.06543529849961593
+    },
+    {
+     "trackId": "fontana",
+     "score": -0.4941966508013863,
+     "finished": false,
+     "pace": null,
+     "aero": 0.5871637668481202
+    },
+    {
+     "trackId": "charlotte",
+     "score": 1.5255499510552541,
+     "finished": true,
+     "pace": 1.0261784232781612,
+     "aero": 0.029939595585372403
+    },
+    {
+     "trackId": "texas",
+     "score": 1.5196197595766003,
+     "finished": true,
+     "pace": 1.05405046943716,
+     "aero": 0.01771586311266149
+    },
+    {
+     "trackId": "lasvegas",
+     "score": 1.5242197886629323,
+     "finished": true,
+     "pace": 1.029339483128494,
+     "aero": 0.027282328455967342
+    },
+    {
+     "trackId": "kansas",
+     "score": 1.533453644667496,
+     "finished": true,
+     "pace": 1.0159328041540885,
+     "aero": 0.010029193656760249
+    },
+    {
+     "trackId": "homestead",
+     "score": 0.38085396194667265,
+     "finished": false,
+     "pace": null,
+     "aero": 0.1117563043980192
+    },
+    {
+     "trackId": "chicagoland",
+     "score": 1.5370286014050234,
+     "finished": true,
+     "pace": 1.002027350831645,
+     "aero": 0.015551715492835738
+    },
+    {
+     "trackId": "kentucky",
+     "score": 1.4835468864038388,
+     "finished": true,
+     "pace": 1.1293080300042329,
+     "aero": 0.03785439147900327
+    },
+    {
+     "trackId": "nashville",
+     "score": 1.342804090816867,
+     "finished": true,
+     "pace": 1.0956151232048206,
+     "aero": 0.24449670248829702
+    },
+    {
+     "trackId": "darlington",
+     "score": 1.5184728590906618,
+     "finished": true,
+     "pace": 0.9856344617508106,
+     "aero": 0.07648580758844092
+    },
+    {
+     "trackId": "rockingham",
+     "score": 1.4665292063575968,
+     "finished": true,
+     "pace": 1.030672077282622,
+     "aero": 0.1956592363456744
+    },
+    {
+     "trackId": "dover",
+     "score": 1.4662862777801875,
+     "finished": true,
+     "pace": 1.0669807191345269,
+     "aero": 0.1599919618442429
+    },
+    {
+     "trackId": "phoenix",
+     "score": 0.3074001248470408,
+     "finished": false,
+     "pace": null,
+     "aero": 0.311456083096765
+    },
+    {
+     "trackId": "newhampshire",
+     "score": 1.3646298223174722,
+     "finished": true,
+     "pace": 1.09567044564301,
+     "aero": 0.39447801282920913
+    },
+    {
+     "trackId": "gateway",
+     "score": 1.4242068086104132,
+     "finished": true,
+     "pace": 1.0510911425898544,
+     "aero": 0.33152167521566855
+    },
+    {
+     "trackId": "milwaukee",
+     "score": 1.4713369968085062,
+     "finished": true,
+     "pace": 0.9653388202327723,
+     "aero": 0.2756782488260542
+    },
+    {
+     "trackId": "iowa",
+     "score": 1.4330190152616011,
+     "finished": true,
+     "pace": 1.0490388439942053,
+     "aero": 0.25665219183279175
+    },
+    {
+     "trackId": "richmond",
+     "score": 1.3381512223836496,
+     "finished": true,
+     "pace": 1.0429678338431845,
+     "aero": 0.5048227587777688
+    },
+    {
+     "trackId": "bristol",
+     "score": 1.444125141664517,
+     "finished": true,
+     "pace": 1.0427551758180964,
+     "aero": 0.26181807543415825
+    },
+    {
+     "trackId": "martinsville",
+     "score": 1.3532709903397544,
+     "finished": true,
+     "pace": 1.0159553257261495,
+     "aero": 0.6191159936060797
+    },
+    {
+     "trackId": "northwilkesboro",
+     "score": 1.3915070428606435,
+     "finished": true,
+     "pace": 1.0815938017180693,
+     "aero": 0.3782796640063524
+    },
+    {
+     "trackId": "irp",
+     "score": 1.4245901482279923,
+     "finished": true,
+     "pace": 1.0662724514643362,
+     "aero": 0.29088202956222786
+    },
+    {
+     "trackId": "bowmangray",
+     "score": 1.3119337811866856,
+     "finished": true,
+     "pace": 1.1420131668176736,
+     "aero": 0.386065574422525
+    },
+    {
+     "trackId": "memphis",
+     "score": 1.2928462911289416,
+     "finished": true,
+     "pace": 1.1009887995645105,
+     "aero": 0.5966927414169637
+    },
+    {
+     "trackId": "fairgrounds",
+     "score": 1.3800950300753259,
+     "finished": true,
+     "pace": 1.0576316799620793,
+     "aero": 0.44217283856161893
+    },
+    {
+     "trackId": "pikespeak",
+     "score": 1.3503693922636368,
+     "finished": true,
+     "pace": 1.1126848731614898,
+     "aero": 0.3069949012413289
+    }
+   ]
+  },
+  {
+   "name": "E7·8@72",
+   "design": "E",
+   "from": "D vs E, gen 72: champion",
+   "points": 1.3014845303729963,
+   "finished": 29,
+   "ovals": 32,
+   "pace": 1.0472348830693659,
+   "aero": 0.15310920751164,
+   "trials": [
+    {
+     "trackId": "daytona",
+     "score": 1.501645870014545,
+     "finished": true,
+     "pace": 1.0344981861411768,
+     "aero": 0
+    },
+    {
+     "trackId": "talladega",
+     "score": 1.5033654194108705,
+     "finished": true,
+     "pace": 1.02786067981056,
+     "aero": 0
+    },
+    {
+     "trackId": "atlanta",
+     "score": 1.5055110801717135,
+     "finished": true,
+     "pace": 1.0638456888461416,
+     "aero": 0
+    },
+    {
+     "trackId": "michigan",
+     "score": 1.519673274230501,
+     "finished": true,
+     "pace": 1.0286403959900314,
+     "aero": 0
+    },
+    {
+     "trackId": "pocono",
+     "score": 1.4604527810502888,
+     "finished": true,
+     "pace": 1.094321347678724,
+     "aero": 0.1290258545098394
+    },
+    {
+     "trackId": "indianapolis",
+     "score": 1.4933815607203325,
+     "finished": true,
+     "pace": 1.0761801591597775,
+     "aero": 0
+    },
+    {
+     "trackId": "fontana",
+     "score": -0.3734855654271171,
+     "finished": false,
+     "pace": null,
+     "aero": 0.18157031030904414
+    },
+    {
+     "trackId": "charlotte",
+     "score": 1.5265291336239313,
+     "finished": true,
+     "pace": 1.0261784232781612,
+     "aero": 0.033767298998949924
+    },
+    {
+     "trackId": "texas",
+     "score": 1.5269370840135628,
+     "finished": true,
+     "pace": 1.0499099793776423,
+     "aero": 0
+    },
+    {
+     "trackId": "lasvegas",
+     "score": 1.5322619575869882,
+     "finished": true,
+     "pace": 1.0264817943913245,
+     "aero": 0.005358804607528911
+    },
+    {
+     "trackId": "kansas",
+     "score": 1.536556322934032,
+     "finished": true,
+     "pace": 1.0103751848753464,
+     "aero": 0
+    },
+    {
+     "trackId": "homestead",
+     "score": 1.5389661270377974,
+     "finished": true,
+     "pace": 0.9921625793312395,
+     "aero": 0.033163316564367884
+    },
+    {
+     "trackId": "chicagoland",
+     "score": 1.5355741148876934,
+     "finished": true,
+     "pace": 1.0112751602584302,
+     "aero": 0.010146841828698294
+    },
+    {
+     "trackId": "kentucky",
+     "score": 1.4849495109763067,
+     "finished": true,
+     "pace": 1.1316570846688283,
+     "aero": 0.03374164655907619
+    },
+    {
+     "trackId": "nashville",
+     "score": 1.4548401197412608,
+     "finished": true,
+     "pace": 1.093331402260152,
+     "aero": 0.1567283340153156
+    },
+    {
+     "trackId": "darlington",
+     "score": 1.5210732095388724,
+     "finished": true,
+     "pace": 0.9873768915594447,
+     "aero": 0.06157482293201311
+    },
+    {
+     "trackId": "rockingham",
+     "score": 1.460646183737309,
+     "finished": true,
+     "pace": 1.020700129057358,
+     "aero": 0.1271707348062333
+    },
+    {
+     "trackId": "dover",
+     "score": 1.4566071482930976,
+     "finished": true,
+     "pace": 1.0767419783525063,
+     "aero": 0.14236094710597325
+    },
+    {
+     "trackId": "phoenix",
+     "score": 1.423628708762457,
+     "finished": true,
+     "pace": 1.083018436821772,
+     "aero": 0.26639168053090867
+    },
+    {
+     "trackId": "newhampshire",
+     "score": -0.24096995779895236,
+     "finished": false,
+     "pace": null,
+     "aero": 0.356420566685682
+    },
+    {
+     "trackId": "gateway",
+     "score": 1.4221741912574606,
+     "finished": true,
+     "pace": 1.0526376229369705,
+     "aero": 0.33061787671470666
+    },
+    {
+     "trackId": "milwaukee",
+     "score": 1.4816177145349025,
+     "finished": true,
+     "pace": 0.9608670712102695,
+     "aero": 0.2461585494540216
+    },
+    {
+     "trackId": "iowa",
+     "score": 1.4715056791082348,
+     "finished": true,
+     "pace": 1.0497633183339803,
+     "aero": 0.1572673268571041
+    },
+    {
+     "trackId": "richmond",
+     "score": 1.4298627490726596,
+     "finished": true,
+     "pace": 1.028731922318026,
+     "aero": 0.30515888890905896
+    },
+    {
+     "trackId": "bristol",
+     "score": 1.4701563364516685,
+     "finished": true,
+     "pace": 1.0539315442620203,
+     "aero": 0.10932147432882489
+    },
+    {
+     "trackId": "martinsville",
+     "score": 1.33526404335901,
+     "finished": true,
+     "pace": 1.0244075330949196,
+     "aero": 0.608504736268982
+    },
+    {
+     "trackId": "northwilkesboro",
+     "score": 1.4145873582725879,
+     "finished": true,
+     "pace": 1.058193935815515,
+     "aero": 0.29792091980391333
+    },
+    {
+     "trackId": "irp",
+     "score": 1.45210072397644,
+     "finished": true,
+     "pace": 1.0575129316987593,
+     "aero": 0.20526188095134168
+    },
+    {
+     "trackId": "bowmangray",
+     "score": -0.4095894996816214,
+     "finished": false,
+     "pace": null,
+     "aero": 0.12885584196675226
+    },
+    {
+     "trackId": "memphis",
+     "score": 1.3414274667104107,
+     "finished": true,
+     "pace": 1.1040010808218688,
+     "aero": 0.49077193438772293
+    },
+    {
+     "trackId": "fairgrounds",
+     "score": 1.4326131897314465,
+     "finished": true,
+     "pace": 1.0469124399624639,
+     "aero": 0.29414748707667504
+    },
+    {
+     "trackId": "pikespeak",
+     "score": 1.43764093563718,
+     "finished": true,
+     "pace": 1.0982967066981948,
+     "aero": 0.18808656419974568
+    }
+   ]
+  }
+ ]
+}

@@ -26,6 +26,18 @@ image = (
     .add_local_dir(ROOT / "train", "/app/train", ignore=["*.py", "__pycache__"])
     .add_local_file(ROOT / "models/originals/tab-field.json", "/app/models/originals/tab-field.json")
 )
+# gradient learning (train/ppo): the same engine plus PyTorch, at the versions its checks passed on locally
+ppo_image = (
+    modal.Image.from_registry("node:22-slim", add_python="3.12")
+    # a C compiler for torch.compile: Triton builds a small launcher for its kernels with it
+    .apt_install("gcc", "libc6-dev")
+    .pip_install("torch==2.14.1", "numpy==2.5.3", "scipy==1.18.1")
+    .add_local_dir(ROOT / "js", "/app/js")
+    .add_local_dir(ROOT / "train", "/app/train", ignore=["__pycache__"])
+)
+# one L4 and 16 cores (about $1.81 an hour): the race workers fill a 600,000-decision batch in a second or two, the GPU
+# trains on it in about the same; rollouts.js gets a few more threads than cores, as evolution's 80 on 64 do
+PPO_CORES, PPO_THREADS = 16, 19
 
 
 # A helper lives only while the main machine's heartbeat does: if the engine is interrupted or stopped,
@@ -50,6 +62,7 @@ def helper(run: str, index: int, token: str, deadline: float):
 @app.function(image=image, cpu=CORES, memory=24576, timeout=9 * 3600, volumes={"/vol": volume},
               retries=modal.Retries(max_retries=2, initial_delay=10.0))
 def train(slot: str, deadline: float, helpers: int, until: int = 0):
+    volume.reload()  # see learn: a stale view of the volume misses what the launcher just uploaded
     # until: stop once that generation is saved (0: run to the deadline)
     # The main machine starts its own helpers, so they don't depend on the laptop that launched the run.
     # Each attempt (a preempted run is retried) gets a fresh run id and token.
@@ -96,6 +109,32 @@ def train(slot: str, deadline: float, helpers: int, until: int = 0):
         helpers_board[f"{run}:done"] = True
         for call in calls:
             call.cancel()
+
+
+# Gradient learning on one machine: the learner (train/ppo/learner.py) on the GPU, the race workers on the cores. The
+# run lives in the save's ppo/ folder on the volume, committed every 30 s so the laptop sees it; a run that crashes
+# or is preempted is retried and resumes from its checkpoint. Exit 0 is a finish (the hours or the iterations ran out).
+# options: more learner flags (the noise pilot's --sigma0 and --generation-every).
+@app.function(image=ppo_image, gpu="L4", cpu=PPO_CORES, memory=32768, timeout=9 * 3600, volumes={"/vol": volume},
+              retries=modal.Retries(max_retries=2, initial_delay=10.0))
+def learn(slot: str, deadline: float, iterations: int = 0, options: list = ()):
+    # a machine can start with a stale view of the volume, missing what the launcher uploaded just before (a save's
+    # checkpoint, start.json, config.json): it then trained from scratch with the defaults
+    volume.reload()
+    command = ["python", "/app/train/ppo/learner.py", "--dir", f"/vol/slots/{slot}/ppo", "--shm", "/tmp/ppo-rows",
+               "--threads", str(PPO_THREADS), "--decisions", "600000", "--device", "cuda",
+               "--hours", str(max(0.01, (deadline - time.time()) / 3600)), *options]
+    if iterations:
+        command += ["--iterations", str(iterations)]
+    learner, committed = subprocess.Popen(command), time.time()
+    while learner.poll() is None:
+        time.sleep(5)
+        if time.time() - committed >= 30:
+            volume.commit()
+            committed = time.time()
+    volume.commit()
+    if learner.returncode != 0:
+        raise RuntimeError(f"the learner exited with code {learner.returncode}")
 
 
 @app.local_entrypoint()

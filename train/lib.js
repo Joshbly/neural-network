@@ -9,7 +9,8 @@ return { Brain, Track, OvalTrack, NASCAR_TRACKS, SURFACE, MPH_PER_SPEED, Heat, C
   HALF_WIDTH, REAR_CAR_RAYS, clamp, G, NORMAL, NASCAR_670, NASCAR_PLATE, specFor, stockSpec, steerLock,
   SUPERSPEEDWAYS, YARDSTICK_OVALS, practiceOvals, seasonOvals, lapsFor, pickFrom, OTHER_OVALS, RC,
   noiseVector, perturbGenes, geneScale, esSeed, quantizeGenes, scenarioOptions, WALL_RAY_DEG, CAR_RAY_DEG, LOOKAHEAD, DECIDE_EVERY,
-  MIRROR_FROM, MIRROR_SIGN, PACE_RAY_DEG, DRIFT_RAY_DEG, CLOSING_GAIN, TRAFFIC_SENSES, ROAD_SENSES };`)();
+  MIRROR_FROM, MIRROR_SIGN, PACE_RAY_DEG, DRIFT_RAY_DEG, CLOSING_GAIN, TRAFFIC_SENSES, ROAD_SENSES, gaussianPair, explorationSeed,
+  rollingStart, placeAt };`)();
 
 // deterministic Gaussian noise from a seed (js/replay.js, shared with the app so it can rebuild any copy)
 const noise = E.noiseVector, perturb = E.perturbGenes;
@@ -74,13 +75,16 @@ function track(seed) {
   return t;
 }
 // the real ovals are bigger (about 4 MB each, all 32 would be 116 MB a thread) and a generation only visits a
-// dozen, so the 8 most recent stay built
-const ovals = new Map(), OVAL_CACHE = 8;
+// dozen, so the 8 most recent stay built. Gradient learning's 19 threads race all 32 in short episodes, where
+// rebuilding (8 ms) costs a third of the time, so they keep every one (keepOvals).
+const ovals = new Map();
+let ovalCache = 8;
+const keepOvals = n => { ovalCache = n; };
 function oval(id) {
   const t = ovals.get(id) ?? new E.OvalTrack(E.NASCAR_TRACKS.find(d => d.id === id));
   ovals.delete(id);
   ovals.set(id, t);
-  if (ovals.size > OVAL_CACHE) ovals.delete(ovals.keys().next().value);
+  if (ovals.size > ovalCache) ovals.delete(ovals.keys().next().value);
   return t;
 }
 // a scenario names a generated track by seed or a real oval by id, and which cars race: normal saves leave
@@ -118,17 +122,22 @@ const ruleCost = car => car.penalties === undefined ? 0 : 0.15 * car.penalties +
 // distance covered, counting a lap given back by the lucky dog
 const covered = car => car.progress + car.bonus + car.gridOffset;
 
+// The time-trial score of a car's state right now: at the flag, what timeTrial scores; mid-run (not finished, not
+// retired), the share of the distance covered less the damage and rule costs so far. It's 0 at the start, so
+// gradient learning credits each decision with its change and the credits add up to the score exactly.
+// A DNF (stalled or wrong way) must always score below crashing forward, or "never move" becomes a local optimum
+// that the cost of crashing alone would make attractive.
+function ttScore(car, heat) {
+  const share = E.clamp(covered(car) / (heat.laps * heat.track.length), 0, 1);
+  return (car.finished ? 1 + (1 - car.steps / heat.maxSteps) : share) - walls(car, WALL_PENALTY.solo) - (car.spec.stock ? 0 : 0.001 * car.impact) - 0.25 * worn(car) - (car.retired ? 0.5 : 0) - ruleCost(car);
+}
+
 // Solo laps against the clock: pace and clean driving, no traffic noise.
 function timeTrial(sc) {
-  const { layers, genes, laps } = sc, t = trackOf(sc), heat = heatOf(sc, t, [new E.Brain(layers, genes)]);
+  const { layers, genes } = sc, t = trackOf(sc), heat = heatOf(sc, t, [new E.Brain(layers, genes)]);
   while (!heat.over) heat.tick();
-  const car = heat.cars[0], share = E.clamp(covered(car) / (laps * t.length), 0, 1);
-  // a DNF (stalled or wrong way) must always score below crashing forward, or "never move" becomes
-  // a local optimum that the cost of crashing alone would make attractive
-  return {
-    score: (car.finished ? 1 + (1 - car.steps / heat.maxSteps) : share) - walls(car, WALL_PENALTY.solo) - (car.spec.stock ? 0 : 0.001 * car.impact) - 0.25 * worn(car) - (car.retired ? 0.5 : 0) - ruleCost(car),
-    finished: car.finished, lap: car.laps.length ? Math.min(...car.laps) / 60 : null, walls: car.wallHits, aero: worn(car),
-  };
+  const car = heat.cars[0];
+  return { score: ttScore(car, heat), finished: car.finished, lap: car.laps.length ? Math.min(...car.laps) / 60 : null, walls: car.wallHits, aero: worn(car) };
 }
 
 // A race: the candidate starts from `slot` among opponents. Winning is what counts; leading, distance
@@ -174,4 +183,4 @@ function fieldRace(sc) {
 const RUNNERS = { tt: timeTrial, race, field: fieldRace };
 const run = scenario => RUNNERS[scenario.kind](scenario);
 
-module.exports = { E, noise, perturb, initParams, widen, run, track, oval, racePoints, SHAPES };
+module.exports = { E, noise, perturb, initParams, widen, run, track, oval, keepOvals, racePoints, SHAPES, ttScore };

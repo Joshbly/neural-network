@@ -20,6 +20,10 @@ const keys = {};
 let panels, race = null, sketch = null, lastFocus = null, cameraBeforeSketch = 'follow';
 // The races you watch: a save's latest generation (models/slots/<id>/state.json, written by train/evolve.js).
 let league = null, pros = null, engine = null, progress = null, xrayShown = null, rating = null;
+// a gradient-learning save (state.json has ppo, train/ppo/learner.py): the best evolved brains on its 32 time trials
+// (baselines.json, train/ppo/tt-report.js), drawn as the bar it has to clear
+let baselines = null;
+const PPO_PER_HOUR = 1.81; // its one L4 machine on Modal (server.js)
 // everyone's weights at the start of the engine's current round, plus the practice plan it's running
 let live = null;
 // the neuron lab: what train/neurons.js found about each analysed brain's neurons, and the neuron being inspected
@@ -247,8 +251,64 @@ function drawScene(heat) {
 
 // ---------- the evolution panel ----------
 
+// the panel's chart titles are evolution's; a gradient-learning save swaps in its own
+const retitle = (el, text) => {
+  el.dataset.base ??= el.textContent;
+  el.dataset.tip ??= el.title;
+  el.textContent = text ?? el.dataset.base;
+  el.title = text ? '' : el.dataset.tip;
+};
+const CHART_TITLES = {
+  '#chart-practice': 'Average time-trial score of each iteration\'s practice, exploring around its decisions (higher is better)',
+  '#chart-vs': 'Time-trial score on all 32 ovals each generation, no noise (dashed: the best evolved brains)',
+  '#chart-laps': 'Lap time against pole on the ovals it finished (1.00 is pole pace, lower is faster)',
+  '#chart-designs': 'Ovals finished of the 32 each generation',
+  '#chart-aero': 'Downforce lost per 6 km time trial (lower is cleaner)',
+};
+const TILE_TITLES = { '#stat-champion': 'Policy', '#stat-lap': 'Pace', '#stat-gen-time': 'Per generation' };
+function titlesFor(ppo) {
+  for (const [id, text] of Object.entries(CHART_TITLES)) retitle($(id).previousElementSibling, ppo ? text : null);
+  for (const [id, text] of Object.entries(TILE_TITLES)) retitle($(id).previousElementSibling, ppo ? text : null);
+}
+
+// gradient learning: one policy, F·PPO, judged every generation by a time trial on every oval with no noise
+function drawGradient() {
+  const { history } = league, color = designColor('F'), marks = baselines?.slot === league.slot ? baselines.brains : [];
+  const line = fn => [{ color, points: history.filter(h => h.species.F && fn(h.species.F) != null).map(h => [h.gen, fn(h.species.F)]) }];
+  const refs = fn => marks.filter(b => fn(b) != null).map(b => ({ value: fn(b), label: b.name, color: `hsla(${DESIGN_HUE[b.design]}, 85%, 64%, 0.8)` }));
+  const chart = (panel, fn, opts) => {
+    const series = line(fn), values = [...series[0].points.map(p => p[1]), ...refs(fn).map(r => r.value)];
+    drawChart(panel.ctx, panel.w, panel.h, { series, ref: refs(fn), empty: 'waiting for the first evaluation…', ...opts(values) });
+  };
+  const pct = v => `${Math.round(v * 100)}%`;
+  chart(panels.vs, s => s.points, vs => ({ yMin: Math.floor(Math.min(0, ...vs) * 4) / 4, yMax: Math.ceil(Math.max(1, ...vs) * 4) / 4, format: v => v.toFixed(2) }));
+  chart(panels.laps, s => s.pace, vs => ({ yMin: Math.floor(Math.min(1, ...vs) * 20) / 20, yMax: Math.ceil(Math.max(1.2, ...vs) * 20) / 20, format: v => `${v.toFixed(2)}×` }));
+  chart(panels.designs, s => s.finished / s.ovals, () => ({ yMin: 0, yMax: 1, format: pct }));
+  chart(panels.aero, s => s.aero / 2, vs => ({ yMin: 0, yMax: Math.max(0.2, ...vs), format: pct }));
+
+  const last = history.at(-1), policy = league.population[0];
+  if (!last) {
+    for (const id of ['#stat-champion', '#stat-lap', '#stat-gen-time']) $(id).textContent = '—';
+    $('#design-table').innerHTML = '';
+    return;
+  }
+  const s = last.species.F, noise = policy.noise ?? last.ppo.noise;
+  $('#stat-champion').innerHTML = `<span style="color:${policy.style.color}">${esc(policy.name)}</span><small>iteration ${last.ppo.iteration} · noise ${noise.map(v => v.toFixed(2)).join(' / ')}</small>`;
+  $('#stat-lap').innerHTML = s.pace ? `${s.pace.toFixed(3)}×<small>pole, on ${s.finished} of ${s.ovals} ovals</small>` : '—<small>no oval finished yet</small>';
+  $('#stat-gen-time').textContent = last.minutes ? `${last.minutes.toFixed(1)} min` : '—';
+  // the running total if it's learning right now, else the last generation's
+  const hours = progress?.ppo?.hours ?? last.ppo.hours ?? 0, decisions = progress?.ppo ? progress.runs.total : last.ppo.decisions;
+  const row = (name, nameColor, brain, t, extra) => `<tr><td><b style="color:${nameColor}">${esc(name)}</b></td><td>${brain}</td><td>${t.finished}/${t.ovals}</td>
+    <td>${t.points.toFixed(3)}</td><td>${t.pace ? `${t.pace.toFixed(3)}×` : '—'}</td><td>${Math.round(t.aero * 50)}%</td><td>${extra}</td></tr>`;
+  $('#design-table').innerHTML = `<tr><th>Brain</th><th></th><th title="Ovals finished of the 32">Fin</th><th title="Mean time-trial score over the 32 ovals (the gate: beat every evolved brain)">Score</th><th title="Lap time against pole on the ovals finished">Pace</th><th>Aero lost</th><th></th></tr>`
+    + row(policy.name, policy.style.color, `gen ${last.gen}`, s, `<small title="${count(decisions)} decisions">${(decisions / 1e6).toFixed(0)}M · ${hours.toFixed(2)} h ≈ $${(hours * PPO_PER_HOUR).toFixed(2)}</small>`)
+    + marks.map(b => row(b.name, designColor(b.design), `<small>evolved</small>`, b, `<small>${esc(b.from)}</small>`)).join('');
+}
+
 function drawLeague() {
   if (!panels || !league) return;
+  titlesFor(!!league.ppo);
+  if (league.ppo) return drawGradient();
   const { history } = league, designs = Object.keys(DESIGN_HUE).filter(d => history.some(h => h.species[d]));
   const series = fn => designs.map(d => ({ color: designColor(d), points: history.filter(h => h.species[d]).map(h => [h.gen, fn(h.species[d], h)]) }));
   const pct = v => `${Math.round(v * 100)}%`;
@@ -308,17 +368,21 @@ function drawLeague() {
 const count = v => Math.round(v).toLocaleString();
 function drawBoard() {
   if (!panels) return;
-  const p = engine?.running ? progress : null, b = p?.practice?.board, runs = p?.runs;
+  const p = engine?.running ? progress : null, runs = p?.runs, ppo = league?.ppo;
+  // gradient learning: one policy, its cell filling over the generation's iterations, its score the latest iteration's
+  const b = p?.ppo ? { done: [p.round], copies: p.rounds, mean: p.practiceHistory.at(-1)?.mean ?? [] } : p?.practice?.board;
   $('#pb-summary').textContent = !p ? 'learning is paused'
     : p.phase === 'tournament' || p.phase === 'rating' ? `generation ${p.generation} · ${p.phase === 'rating' ? 'rating ladder: the best of each design against frozen champions' : 'tournament'}${runs ? ` · ${count(runs.total)} practice runs so far` : ''}`
+    : p.ppo ? `gen ${p.generation} · iteration ${p.ppo.iteration} (${p.round}/${p.rounds}) · ${count(runs.round)} decisions · ${count(runs.perSecond)}/s · ${(runs.total / 1e6).toFixed(1)}M total`
     : runs ? `gen ${p.generation} · round ${p.round}/${p.rounds} · ${count(runs.round)} of ${count(runs.roundTotal)} runs · ${count(runs.perSecond)}/s · ${count(runs.total)} total` : 'starting…';
 
-  const rounds = p?.rounds ?? 5, now = !p ? 0 : p.phase === 'tournament' || p.phase === 'rating' ? rounds + 1 : p.round;
+  // a gradient-learning generation is 25 iterations then the evaluation (E), too many to label every one
+  const rounds = p?.rounds ?? ppo?.every ?? 5, now = !p ? 0 : p.phase === 'tournament' || p.phase === 'rating' ? rounds + 1 : p.round;
   $('#pb-rounds').innerHTML = [...Array(rounds + 1)].map((_, i) =>
-    `<i class="${i + 1 < now ? 'done' : i + 1 === now ? 'now' : ''}">${i < rounds ? `R${i + 1}` : 'T'}</i>`).join('');
+    `<i class="${i + 1 < now ? 'done' : i + 1 === now ? 'now' : ''}">${i === rounds ? (ppo ? 'E' : 'T') : ppo ? ((i + 1) % 5 ? '' : i + 1) : `R${i + 1}`}</i>`).join('');
 
   // the seats never move (a replaced brain's copy takes its seat), so seat i lines up across rounds
-  const seats = league?.population ?? [], hist = p?.practiceHistory ?? [];
+  const seats = league?.population ?? [], hist = p?.practiceHistory ?? (ppo ? league.practiceHistory : null) ?? [];
   const last = hist.at(-1), prev = last && last.gen === p?.generation && last.round === p?.round ? hist.at(-2) : last;
   const watching = pros?.plan?.learner ?? state.picked;
   // a column per design in the save (two each for a head-to-head, so twenty seats still fit in five rows)
@@ -332,7 +396,8 @@ function drawBoard() {
     const name = p?.practice?.pros?.[seat.i]?.name ?? seat.a.name, done = b?.done[seat.i] ?? 0, mean = b?.mean[seat.i], before = prev?.mean[seat.i];
     const delta = mean != null && before != null ? mean - before : null;
     const trend = delta == null || Math.abs(delta) < 0.005 ? '' : `<span class="${delta > 0 ? 'up' : 'down'}">${delta > 0 ? '▲' : '▼'}${Math.abs(delta).toFixed(2)}</span>`;
-    cells.push(`<div class="pb-cell ${name === watching ? 'watching' : ''}" data-name="${esc(name)}" title="${esc(name)}: ${done} of ${b?.copies ?? '—'} copies raced this round${mean != null ? `, average reward ${mean.toFixed(2)}` : ''}. Click to watch it practise.">
+    const tip = p?.ppo ? `iteration ${done} of ${b.copies} this generation${mean != null ? `, its practice scored ${mean.toFixed(2)} on average` : ''}` : `${done} of ${b?.copies ?? '—'} copies raced this round${mean != null ? `, average reward ${mean.toFixed(2)}` : ''}`;
+    cells.push(`<div class="pb-cell ${name === watching ? 'watching' : ''}" data-name="${esc(name)}" title="${esc(name)}: ${tip}. Click to watch it practise.">
       <b style="color:${seat.a.style.color}">${esc(name)}</b><div class="bar"><i style="width:${b ? Math.round(done / b.copies * 100) : 0}%"></i></div>${mean != null ? mean.toFixed(2) : '—'} ${trend}</div>`);
   }
   $('#pb-grid').innerHTML = cells.join('');
@@ -352,7 +417,8 @@ function drawBoard() {
 function showEngine() {
   const running = engine?.running, training = engine?.active;
   $('#engine-dot').classList.toggle('on', !!running);
-  const phase = progress?.phase === 'tournament' ? 'tournament' : progress?.phase === 'rating' ? 'rating ladder' : progress?.round ? `training round ${progress.round}/${progress.rounds}` : 'starting';
+  const phase = progress?.phase === 'tournament' ? 'tournament' : progress?.phase === 'rating' ? 'rating ladder'
+    : progress?.phase === 'learning' ? `gradient learning, iteration ${progress.ppo.iteration}` : progress?.round ? `training round ${progress.round}/${progress.rounds}` : 'starting';
   const where = engine?.cloud
     ? ` on <b>Modal</b> (${progress?.workers ?? '…'} threads on ${progress?.machines ?? 1 + (engine.cloud.helpers ?? 0)} machines, ≈$${(engine.cloud.perHour ?? 3.15).toFixed(2)}/h, stops ${new Date(engine.cloud.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})`
     : ` on <b>${progress?.workers ?? engine?.workers} cores</b>`;
@@ -360,7 +426,8 @@ function showEngine() {
     ? `Training <b>${esc(slotName(training))}</b>${where} · generation ${progress?.generation ?? '…'} · ${phase}`
     : engine ? `Engine stopped${training ? ` · ${esc(slotName(training))} is saved at generation ${engine.slots.find(s => s.id === training)?.generation ?? 0}` : ''}` : `Engine offline · run <b>node server.js</b>`;
   const btn = $('#btn-engine');
-  btn.hidden = !engine?.active;
+  // a gradient-learning save only trains on Modal, so there's nothing to start here
+  btn.hidden = !engine?.active || (!running && !!league?.ppo);
   btn.textContent = running ? 'Stop' : 'Start';
   const done = !running || !progress?.rounds ? 0 : progress.phase === 'tournament' || progress.phase === 'rating' ? 0.97 : ((progress.round - 1) / progress.rounds) * 0.95;
   $('#engine-bar').style.width = `${Math.round(done * 100)}%`;
@@ -419,6 +486,10 @@ function adoptLeague(data, slot) {
     drawLeague();
   });
   getJson(slotUrl(slot, 'neurons.json')).then(atlas => neuronAtlas = atlas);
+  if (data.ppo) getJson(slotUrl(slot, 'baselines.json')).then(b => {
+    baselines = b && { ...b, slot };
+    drawLeague();
+  });
   if (switched) {
     state.away = null;
     toast(`Loaded <b>${esc(slotName(slot))}</b>, generation ${league.generation}.`);
@@ -427,6 +498,7 @@ function adoptLeague(data, slot) {
   }
   if (before == null || before === league.generation) return;
   const last = league.history.at(-1), champ = league.population.find(a => a.name === last.champion);
+  if (league.ppo) return toast(`<b>Generation ${last.gen}</b> evaluated: <b style="color:${champ.style.color}">${champ.name}</b> scores ${last.species.F.points.toFixed(3)} on the 32 ovals and finishes ${last.species.F.finished}.`, 'gold');
   const swaps = last.replaced.map(r => `<b>${r.out}</b> → <b>${r.by}</b>`).join(', ');
   toast(`<b>Generation ${last.gen}</b> is on the grid next race. Champion <b style="color:${champ.style.color}">${champ.name}</b> (design ${champ.species}).${swaps ? ` Replaced: ${swaps}.` : ''}`, 'gold');
 }
@@ -439,7 +511,8 @@ async function refreshLive() {
   const key = `${engine.active}:${progress.generation}:${progress.round}:${progress.phase}`;
   if (live?.key === key) return;
   const data = await getJson(slotUrl(engine.active, 'live.json'));
-  if (!data || data.generation !== progress.generation) return;
+  // gradient learning writes live.json and progress.json once an iteration: both must be the same iteration
+  if (!data || data.generation !== progress.generation || data.iteration !== progress.ppo?.iteration) return;
   // past champions from the hall of fame race in practice too
   const everyone = [...data.population, ...(data.hall ?? [])];
   everyone.forEach((a, k) => {
@@ -769,22 +842,35 @@ function practicePlan(prev, p, which) {
   return { kind: sc.kind === 'tt' ? 'solo' : sc.duel ? 'duel' : 'practice', canonical: true, scenario, grid, learner: pro.name, rival: sc.duel ? rivals[0] : null,
     slot: sc.slot ?? 0, j, copy, copies, gen: p.generation, round: p.round, rounds: p.rounds };
 }
-// one of a recorded set of field races (a tournament or a rating round), the next each time
+// gradient learning: one of this iteration's practice time trials exactly as it ran on Modal (train/ppo/episode.js):
+// the policy's weights from live.json, trying actions around its decisions with the iteration's noise and the
+// episode's own seed. Each one is a different episode from the last, whichever iteration it's from.
+function learningPlan(prev, p) {
+  const eps = p.ppo.episodes, policy = live.population[0];
+  if (!eps?.length || !policy) return null;
+  const j = ((prev?.kind === 'learning' ? prev.j : -1) + 1) % eps.length, ep = eps[j];
+  return { kind: 'learning', canonical: true, scenario: { kind: 'tt', trackId: ep.trackId, laps: ep.laps, cars: 'stock' }, grid: [{ weights: policy.weights, species: policy.style }],
+    explore: { sigma: p.ppo.noise, seed: ep.seed, hold: p.ppo.hold ?? 1 }, start: ep.rolling, time: { steps: ep.steps }, learner: policy.name, j, index: ep.index, count: eps.length,
+    iteration: p.ppo.iteration, gen: p.generation, round: p.round, rounds: p.rounds };
+}
+// one of a recorded set of field races (a tournament or a rating round), the next each time; a recorded time trial
+// (gradient learning's evaluation) also has its official time
 function fieldPlan(kind, prev, set, driverOf, nameOf) {
   const k = prev?.kind === kind && prev.gen === set.gen ? (prev.k + 1) % set.races.length : 0, race = set.races[k];
-  return { kind, canonical: true, scenario: race.scenario, grid: race.grid.map(driverOf), official: race.order?.map(nameOf), k, count: set.races.length, gen: set.gen };
+  return { kind, canonical: true, scenario: race.scenario, grid: race.grid.map(driverOf), official: race.order?.map(nameOf), time: race.time, k, count: set.races.length, gen: set.gen };
 }
 const tournamentPlan = (prev, set) => fieldPlan('tournament', prev, set, name => set.byName.get(name), name => name);
 const ratingPlan = (prev, set) => fieldPlan('rating', prev, set, id => set.byId.get(id), id => set.byId.get(id).species.name);
 
 function evolvingPlan(next) {
   const p = engine?.running && live?.progress, prev = next ? pros?.plan : null, ch = state.channel, training = p?.phase === 'training' && p.practice;
+  const learning = p?.phase === 'learning' && p.ppo && (ch === 'live' || ch === 'practice') && learningPlan(prev, p);
   // the tournament the engine is running right now: its real grids, with the weights live.json published for it
   const running = p?.phase === 'tournament' && p.tournament?.races && live?.generation === p.generation
     ? { gen: p.generation, races: p.tournament.races, byName: new Map([...live.byName].map(([name, a]) => [name, { weights: a.weights, species: a.style }])) } : null;
   const latest = official.tournament, plan =
-    ch === 'live' ? (training && practicePlan(prev, p, 'live')) || (running && tournamentPlan(prev, running)) || (latest && tournamentPlan(prev, latest))
-    : ch === 'practice' || ch === 'duels' ? training && practicePlan(prev, p, ch)
+    ch === 'live' ? (training && practicePlan(prev, p, 'live')) || learning || (running && tournamentPlan(prev, running)) || (latest && tournamentPlan(prev, latest))
+    : ch === 'practice' || ch === 'duels' ? (training && practicePlan(prev, p, ch)) || learning
     : ch === 'tournament' ? latest && tournamentPlan(prev, latest)
     : official.rating && ratingPlan(prev, official.rating);
   if (plan) return plan;
@@ -815,7 +901,10 @@ function showPhase() {
     practice: () => `<b>Practice</b> · generation ${plan.gen}, round ${plan.round} of ${plan.rounds}<small>${who(plan.learner)}, ${copy()}: one of the versions of it the engine raced in this exact race, starting P${plan.slot + 1}. Their results nudge it toward whatever did better. Click any car to follow another brain's practice.</small>`,
     duel: () => `<b>Duel</b> · generation ${plan.gen}, round ${plan.round} of ${plan.rounds}<small>${who(plan.learner)}, ${copy()}, learning to ${plan.slot ? 'attack' : 'defend'}: ${laps} laps against ${who(plan.rival)}, starting ${plan.slot ? 'behind' : 'in front'}. Only the winner scores, so ${plan.slot ? 'it has to get past, by out-braking it or spinning it round' : 'it has to hold on and keep its rear corners covered'}.</small>`,
     solo: () => `<b>Time trial</b> · generation ${plan.gen}, round ${plan.round} of ${plan.rounds}<small>${who(plan.learner)}, ${copy()}, alone against the clock: raw pace and clean laps, no traffic to blame.</small>`,
-    tournament: () => `<b>Tournament</b> · generation ${plan.gen}, race ${plan.k + 1} of ${plan.count}<small>${plan.official ? 'The official race' : 'Running on the engine right now'}: the real grid, car for car. No learning here: these races rank everyone, and in each design a brain that's clearly behind is replaced.</small>`,
+    learning: () => `<b>Practice</b> · generation ${plan.gen}, iteration ${plan.iteration}<small>${who(plan.learner)}, episode ${plan.index + 1} of ${plan.count}, exploring (noise ${plan.explore.sigma.map(v => v.toFixed(2)).join(' / ')}): one of the time trials it raced on Modal this iteration, exactly as it ran, every steer and throttle a try scattered around what it would have done. PPO moves it toward the tries that went better than its critic expected.</small>`,
+    tournament: () => plan.time
+      ? `<b>Evaluation</b> · generation ${plan.gen}, oval ${plan.k + 1} of ${plan.count}<small>${who(plan.grid[0].species.name)} on its own decisions, no noise: one of the 32 time trials that score this generation, exactly as it ran. Its mean score has to beat the best evolved brains' to pass the test.</small>`
+      : `<b>Tournament</b> · generation ${plan.gen}, race ${plan.k + 1} of ${plan.count}<small>${plan.official ? 'The official race' : 'Running on the engine right now'}: the real grid, car for car. No learning here: these races rank everyone, and in each design a brain that's clearly behind is replaced.</small>`,
     rating: () => `<b>Rating</b> · generation ${plan.gen}, race ${plan.k + 1} of ${plan.count}<small>Each design's best against frozen past champions on a fixed track: one of the races the rating chart comes from.</small>`,
     saved: () => `<b>Generation ${plan.gen}</b> · learning is paused<small>The latest saved cars on the tracks their tournament was raced on.</small>`,
   }[plan.kind]().replace('</b>', `</b>${at}`);
@@ -842,7 +931,7 @@ function startPros(go = true, next = false) {
   if (canonical) heat = new Heat(track, brains, sc.laps, scenarioOptions(sc));
   else {
     // on the save's own tracks the engine's lap count; elsewhere the same kind of race at that track's length
-    const kind = !plan ? 'tournament' : { solo: 'practice', rating: 'tournament' }[plan.kind] ?? plan.kind;
+    const kind = !plan ? 'tournament' : { solo: 'practice', learning: 'practice', rating: 'tournament' }[plan.kind] ?? plan.kind;
     const away = !!track.nascar !== (homeMode().tracks === 'nascar');
     const laps = !plan ? lapsOn(track, 'tournament', sim.laps) * (track.nascar ? sim.laps / 10 : 1) : away ? lapsOn(track, plan.kind in RACE_METRES ? plan.kind : kind, { practice: 4, duel: 2 }[kind] ?? 10) : plan.laps ?? sc.laps;
     heat = new Heat(track, brains, Math.max(2, Math.round(laps)), {
@@ -853,6 +942,8 @@ function startPros(go = true, next = false) {
   }
   heat.events = [];
   heat.cars.forEach((car, i) => Object.assign(car, { pro: true, species: grid[i].species }));
+  if (canonical && plan.start) placeAt(heat.cars[0], track, plan.start);
+  if (canonical && plan.explore) heat.cars[0].explore = { ...plan.explore };
   dress(heat);
   pros = { heat, count: (pros?.count ?? 0) + 1, nextAt: null, gen: plan?.gen ?? league.generation, plan, canonical };
   state.mode = 'pros';
@@ -889,6 +980,14 @@ function prosTick() {
   const plan = pros.plan, which = state.playing ? `your race` : { practice: 'this practice race', duel: 'this duel', solo: 'this time trial', tournament: `tournament race ${plan.k + 1}`, rating: `rating race ${plan.k + 1}` }[plan.kind] ?? `generation ${pros.gen}, race ${pros.count}`;
   // a recorded race replayed exactly finishes exactly as it did on the engine
   const order = pros.heat.standings().map(car => car.species.name);
+  // a recorded time trial (gradient learning) is one car: its time to the step instead
+  if (pros.canonical && plan.time) {
+    const car = pros.heat.cars[0], same = car.steps === plan.time.steps ? ' · ✓ exactly as it ran on Modal' : ' · ✗ not as it ran';
+    const how = car.finished ? `finishes in ${(car.steps / 60).toFixed(2)}s` : car.retired ? `is out after ${car.laps.length} laps` : `runs out of time after ${car.laps.length} laps`;
+    toast(`<b style="color:${car.species.color}">${car.species.name}</b> ${how}${car.laps.length ? `, best lap ${(Math.min(...car.laps) / 60).toFixed(2)}s` : ''}${same}`, 'gold');
+    pros.nextAt = performance.now() + 4000;
+    return;
+  }
   const check = pros.canonical && plan.official ? (order.join() === plan.official.join() ? ' · ✓ the official result' : ' · ✗ not the official result') : '';
   toast(`<b style="color:${winner.species.color}">${winner.species.name}</b> (design ${winner.species.design}) ${winner.finished ? 'wins' : 'gets furthest in'} ${which}${margin}${check}`, 'gold');
   pros.nextAt = performance.now() + 4000;

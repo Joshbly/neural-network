@@ -1,0 +1,42 @@
+{
+ "started": "2026-10-04T16:22:52",
+ "hours_cap": 0.85,
+ "runs": {
+  "fs-a": {
+   "flags": [
+    "--gamma",
+    "0.9998",
+    "--lam",
+    "0.95"
+   ],
+   "call": "fc-01M449AVAVPEERSGD1S6DSQH8E",
+   "outcome": "failed: RemoteError",
+   "minutes": 20.98
+  },
+  "fs-b": {
+   "flags": [
+    "--gamma",
+    "0.9999",
+    "--lam",
+    "0.97"
+   ],
+   "call": "fc-01M449AVCG5YQYYJQNRDVRRR84",
+   "outcome": "failed: RemoteError",
+   "minutes": 21.01
+  },
+  "fs-c": {
+   "flags": [
+    "--gamma",
+    "0.9998",
+    "--lam",
+    "0.95",
+    "--sigma0",
+    "0.03,0.1"
+   ],
+   "call": "fc-01M449AVE0MQBBNFGE2RWKBH8J",
+   "outcome": "failed: RemoteError",
+   "minutes": 25.36
+  }
+ },
+ "cost_at_most": 2.3
+}

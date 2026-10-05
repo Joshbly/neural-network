@@ -1,0 +1,15 @@
+Gradient learning, time-trial gate: NASCAR · PPO race distance (slot-8), generation 61
+32 ovals, 6 km each, no exploration · iteration 610 · 579M decisions · 1.00 h on one L4 ≈ $1.81
+(for scale: E vs F evolved full racing for 40 generations in 4.5 h on 3 machines ≈ $43)
+
+  brain       score   finished  pace     aero  against the policy
+  F·PPO       1.377   32/32   1.267×    4%  (matches the learner's own evaluation)
+  F5@40       1.349   30/32   1.081×   10%  policy better on 11/32, pace 1.262× vs 1.081× on the 30 both finished
+  E9·3@40     1.314   29/32   1.055×   11%  policy better on 10/32, pace 1.270× vs 1.055× on the 29 both finished
+  E7·8@72     1.301   29/32   1.047×    8%  policy better on 6/32, pace 1.242× vs 1.047× on the 29 both finished
+
+Rule: PASS if the policy's mean score beats every evolved brain's and it finishes at least as many ovals as the best (F5@40, 30).
+PASS: 1.377 against F5@40's 1.349, 32 ovals finished to 30. Gradient learning drives solo better than evolution did.
+Trend: 3 report(s); still improving (a new best score in the last 3 reports).
+With its own noise it scores 1.352 (31 finished): a gap of -0.025.
+At race distance (24 km): 1.291, 30/32 finished, 1 parked for damage · F5@40 1.006 (25/32), E9·3@40 0.886 (22/32), E7·8@72 1.169 (28/32).

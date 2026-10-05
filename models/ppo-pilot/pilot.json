@@ -1,0 +1,34 @@
+{
+ "started": "2026-10-04T05:47:09-04:00",
+ "hours_cap": 0.25,
+ "iterations": 150,
+ "runs": {
+  "pilot-defaults": [],
+  "pilot-looser": [
+   "--kl-target",
+   "0.03",
+   "--clip",
+   "0.3"
+  ],
+  "pilot-lr": [
+   "--lr",
+   "1e-3"
+  ],
+  "pilot-hold4": [
+   "--hold",
+   "4",
+   "--sigma0",
+   "0.015,0.2"
+  ]
+ },
+ "outcome": "all 4 done (modal_launch status)",
+ "machine_minutes": [
+  11.7,
+  11.8,
+  12.2,
+  12.4
+ ],
+ "cost": 1.45,
+ "note": "the launcher finished normally (all 4 done after 10.8 min by its clock, at most $1.30); cost here is from the containers' own start and stop times, which include start-up",
+ "launcher_estimate": 1.3
+}

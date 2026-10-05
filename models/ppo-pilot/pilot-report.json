@@ -1,0 +1,779 @@
+{
+ "start": 0.7547,
+ "identicalStart": true,
+ "pick": {
+  "name": "pilot-hold4",
+  "setting": "hold 4, steer 0.015",
+  "config": {
+   "gamma": 0.999,
+   "lam": 0.95,
+   "epochs": 5,
+   "minibatch": 32768,
+   "clip": 0.2,
+   "lr_driver": 0.0003,
+   "lr_critic": 0.001,
+   "kl_target": 0.01,
+   "lr_min": 0.00001,
+   "lr_max": 0.0003,
+   "grad_clip": 1,
+   "sigma0": [
+    0.015,
+    0.2
+   ],
+   "hold": 4,
+   "warmup": 3
+  },
+  "end": 1.04,
+  "slope": 0.07400000000000023
+ },
+ "runs": [
+  {
+   "name": "pilot-defaults",
+   "setting": "defaults",
+   "end": 0.9955499999999999,
+   "best": 1.0376,
+   "slope": -0.0754571428571427,
+   "gap": -0.07300000000000006,
+   "out": null,
+   "evals": [
+    {
+     "iteration": 0,
+     "points": 0.7547,
+     "finished": 27,
+     "ovals": 32,
+     "pace": 1.8865,
+     "aero": 0.75,
+     "retired": 4,
+     "noisy": 0.5904,
+     "noisyFinished": 24
+    },
+    {
+     "iteration": 10,
+     "points": 0.8314,
+     "finished": 29,
+     "ovals": 32,
+     "pace": 1.8425,
+     "aero": 0.7776,
+     "retired": 3,
+     "noisy": 0.7903,
+     "noisyFinished": 28
+    },
+    {
+     "iteration": 20,
+     "points": 0.9422,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.7615,
+     "aero": 0.794,
+     "retired": 2,
+     "noisy": 0.8422,
+     "noisyFinished": 28
+    },
+    {
+     "iteration": 30,
+     "points": 0.9812,
+     "finished": 32,
+     "ovals": 32,
+     "pace": 1.768,
+     "aero": 0.7886,
+     "retired": 0,
+     "noisy": 0.8916,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 40,
+     "points": 0.9389,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.7771,
+     "aero": 0.7817,
+     "retired": 2,
+     "noisy": 0.9049,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 50,
+     "points": 0.9789,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.7231,
+     "aero": 0.7973,
+     "retired": 1,
+     "noisy": 0.9205,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 60,
+     "points": 1.0099,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.6441,
+     "aero": 0.7946,
+     "retired": 1,
+     "noisy": 0.9646,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 70,
+     "points": 1.0145,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.643,
+     "aero": 0.7854,
+     "retired": 1,
+     "noisy": 0.9731,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 80,
+     "points": 1.0237,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.6189,
+     "aero": 0.7853,
+     "retired": 1,
+     "noisy": 0.9698,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 90,
+     "points": 1.0334,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.5962,
+     "aero": 0.7919,
+     "retired": 1,
+     "noisy": 1.0213,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 100,
+     "points": 1.033,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.601,
+     "aero": 0.7852,
+     "retired": 1,
+     "noisy": 1.019,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 110,
+     "points": 1.0307,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.6126,
+     "aero": 0.7596,
+     "retired": 1,
+     "noisy": 1.018,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 120,
+     "points": 1.0335,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.6219,
+     "aero": 0.7535,
+     "retired": 1,
+     "noisy": 0.9738,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 130,
+     "points": 1.0376,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.6082,
+     "aero": 0.7555,
+     "retired": 1,
+     "noisy": 0.9807,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 140,
+     "points": 0.9833,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.6446,
+     "aero": 0.7977,
+     "retired": 2,
+     "noisy": 0.9176,
+     "noisyFinished": 29
+    },
+    {
+     "iteration": 150,
+     "points": 1.0078,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.6083,
+     "aero": 0.7605,
+     "retired": 2,
+     "noisy": 0.9348,
+     "noisyFinished": 29
+    }
+   ]
+  },
+  {
+   "name": "pilot-lr",
+   "setting": "rate 0.001",
+   "end": 0.96225,
+   "best": 0.9743,
+   "slope": 0.055542857142857276,
+   "gap": -0.03550000000000009,
+   "out": null,
+   "evals": [
+    {
+     "iteration": 0,
+     "points": 0.7547,
+     "finished": 27,
+     "ovals": 32,
+     "pace": 1.8865,
+     "aero": 0.75,
+     "retired": 4,
+     "noisy": 0.5904,
+     "noisyFinished": 24
+    },
+    {
+     "iteration": 10,
+     "points": 0.8873,
+     "finished": 28,
+     "ovals": 32,
+     "pace": 1.8729,
+     "aero": 0.7929,
+     "retired": 1,
+     "noisy": 0.8026,
+     "noisyFinished": 28
+    },
+    {
+     "iteration": 20,
+     "points": 0.9036,
+     "finished": 29,
+     "ovals": 32,
+     "pace": 1.9004,
+     "aero": 0.7721,
+     "retired": 0,
+     "noisy": 0.874,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 30,
+     "points": 0.9098,
+     "finished": 29,
+     "ovals": 32,
+     "pace": 1.8995,
+     "aero": 0.7635,
+     "retired": 0,
+     "noisy": 0.907,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 40,
+     "points": 0.9586,
+     "finished": 32,
+     "ovals": 32,
+     "pace": 1.8244,
+     "aero": 0.7639,
+     "retired": 0,
+     "noisy": 0.9577,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 50,
+     "points": 0.9652,
+     "finished": 32,
+     "ovals": 32,
+     "pace": 1.8128,
+     "aero": 0.7672,
+     "retired": 0,
+     "noisy": 0.9593,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 60,
+     "points": 0.9298,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.7859,
+     "aero": 0.7547,
+     "retired": 2,
+     "noisy": 0.9845,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 70,
+     "points": 0.9228,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.7941,
+     "aero": 0.7535,
+     "retired": 2,
+     "noisy": 0.9455,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 80,
+     "points": 0.9275,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.7759,
+     "aero": 0.7568,
+     "retired": 2,
+     "noisy": 0.9414,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 90,
+     "points": 0.9363,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.7659,
+     "aero": 0.7591,
+     "retired": 2,
+     "noisy": 0.9334,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 100,
+     "points": 0.9307,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.799,
+     "aero": 0.7553,
+     "retired": 2,
+     "noisy": 0.9933,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 110,
+     "points": 0.9625,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.7981,
+     "aero": 0.75,
+     "retired": 1,
+     "noisy": 0.9397,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 120,
+     "points": 0.9528,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.8058,
+     "aero": 0.7451,
+     "retired": 1,
+     "noisy": 0.9758,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 130,
+     "points": 0.9661,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.8018,
+     "aero": 0.748,
+     "retired": 0,
+     "noisy": 0.9725,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 140,
+     "points": 0.9502,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.8293,
+     "aero": 0.7432,
+     "retired": 1,
+     "noisy": 0.9736,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 150,
+     "points": 0.9743,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.8163,
+     "aero": 0.7409,
+     "retired": 0,
+     "noisy": 0.9388,
+     "noisyFinished": 31
+    }
+   ]
+  },
+  {
+   "name": "pilot-looser",
+   "setting": "KL 0.03, clip 0.3",
+   "end": 1.02405,
+   "best": 1.0635,
+   "slope": -0.09425714285714262,
+   "gap": 0.07240000000000002,
+   "out": "leans on its noise",
+   "evals": [
+    {
+     "iteration": 0,
+     "points": 0.7547,
+     "finished": 27,
+     "ovals": 32,
+     "pace": 1.8865,
+     "aero": 0.75,
+     "retired": 4,
+     "noisy": 0.5904,
+     "noisyFinished": 24
+    },
+    {
+     "iteration": 10,
+     "points": 0.9484,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.7344,
+     "aero": 0.804,
+     "retired": 2,
+     "noisy": 0.7309,
+     "noisyFinished": 26
+    },
+    {
+     "iteration": 20,
+     "points": 0.9673,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.6769,
+     "aero": 0.8185,
+     "retired": 2,
+     "noisy": 0.8831,
+     "noisyFinished": 29
+    },
+    {
+     "iteration": 30,
+     "points": 1.0039,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.6407,
+     "aero": 0.812,
+     "retired": 1,
+     "noisy": 0.9164,
+     "noisyFinished": 29
+    },
+    {
+     "iteration": 40,
+     "points": 0.974,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.7288,
+     "aero": 0.8129,
+     "retired": 1,
+     "noisy": 0.9115,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 50,
+     "points": 0.9629,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.6797,
+     "aero": 0.8184,
+     "retired": 2,
+     "noisy": 0.9426,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 60,
+     "points": 1.0227,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.6165,
+     "aero": 0.7974,
+     "retired": 1,
+     "noisy": 1.0033,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 70,
+     "points": 1.0455,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.5795,
+     "aero": 0.791,
+     "retired": 1,
+     "noisy": 0.902,
+     "noisyFinished": 28
+    },
+    {
+     "iteration": 80,
+     "points": 1.0487,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.5798,
+     "aero": 0.7779,
+     "retired": 1,
+     "noisy": 1.0351,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 90,
+     "points": 1.0552,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.5654,
+     "aero": 0.7807,
+     "retired": 1,
+     "noisy": 0.9951,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 100,
+     "points": 1.0635,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.557,
+     "aero": 0.7766,
+     "retired": 1,
+     "noisy": 1.0297,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 110,
+     "points": 1.0469,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.5892,
+     "aero": 0.7784,
+     "retired": 1,
+     "noisy": 1.0442,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 120,
+     "points": 1.0467,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.5963,
+     "aero": 0.7731,
+     "retired": 1,
+     "noisy": 1.0468,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 130,
+     "points": 1.0499,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.5944,
+     "aero": 0.7732,
+     "retired": 1,
+     "noisy": 0.9945,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 140,
+     "points": 1.0577,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.5727,
+     "aero": 0.7613,
+     "retired": 1,
+     "noisy": 0.9832,
+     "noisyFinished": 29
+    },
+    {
+     "iteration": 150,
+     "points": 0.9904,
+     "finished": 29,
+     "ovals": 32,
+     "pace": 1.5681,
+     "aero": 0.7462,
+     "retired": 3,
+     "noisy": 1.0628,
+     "noisyFinished": 31
+    }
+   ]
+  },
+  {
+   "name": "pilot-hold4",
+   "setting": "hold 4, steer 0.015",
+   "end": 1.04,
+   "best": 1.064,
+   "slope": 0.07400000000000023,
+   "gap": -0.017000000000000126,
+   "out": null,
+   "evals": [
+    {
+     "iteration": 0,
+     "points": 0.7547,
+     "finished": 27,
+     "ovals": 32,
+     "pace": 1.8865,
+     "aero": 0.75,
+     "retired": 4,
+     "noisy": 0.6736,
+     "noisyFinished": 24
+    },
+    {
+     "iteration": 10,
+     "points": 0.877,
+     "finished": 28,
+     "ovals": 32,
+     "pace": 1.8531,
+     "aero": 0.7567,
+     "retired": 1,
+     "noisy": 0.8949,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 20,
+     "points": 0.9841,
+     "finished": 32,
+     "ovals": 32,
+     "pace": 1.7765,
+     "aero": 0.7682,
+     "retired": 0,
+     "noisy": 0.9327,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 30,
+     "points": 0.944,
+     "finished": 32,
+     "ovals": 32,
+     "pace": 1.8469,
+     "aero": 0.78,
+     "retired": 0,
+     "noisy": 0.8391,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 40,
+     "points": 0.8954,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.8217,
+     "aero": 0.7689,
+     "retired": 2,
+     "noisy": 0.9424,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 50,
+     "points": 0.9759,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.7474,
+     "aero": 0.766,
+     "retired": 1,
+     "noisy": 0.9775,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 60,
+     "points": 0.9926,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.7203,
+     "aero": 0.7615,
+     "retired": 1,
+     "noisy": 1.0074,
+     "noisyFinished": 32
+    },
+    {
+     "iteration": 70,
+     "points": 1.0467,
+     "finished": 32,
+     "ovals": 32,
+     "pace": 1.6514,
+     "aero": 0.7566,
+     "retired": 0,
+     "noisy": 1.0035,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 80,
+     "points": 0.9302,
+     "finished": 28,
+     "ovals": 32,
+     "pace": 1.59,
+     "aero": 0.7361,
+     "retired": 4,
+     "noisy": 0.9824,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 90,
+     "points": 0.997,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.6061,
+     "aero": 0.7423,
+     "retired": 2,
+     "noisy": 0.9952,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 100,
+     "points": 1.0027,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.6444,
+     "aero": 0.7594,
+     "retired": 2,
+     "noisy": 1.0103,
+     "noisyFinished": 31
+    },
+    {
+     "iteration": 110,
+     "points": 1.0344,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.6159,
+     "aero": 0.7475,
+     "retired": 1,
+     "noisy": 0.9832,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 120,
+     "points": 1.041,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.6089,
+     "aero": 0.7322,
+     "retired": 1,
+     "noisy": 0.9841,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 130,
+     "points": 1.0487,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.59,
+     "aero": 0.7431,
+     "retired": 1,
+     "noisy": 0.9922,
+     "noisyFinished": 30
+    },
+    {
+     "iteration": 140,
+     "points": 1.016,
+     "finished": 30,
+     "ovals": 32,
+     "pace": 1.5505,
+     "aero": 0.7279,
+     "retired": 2,
+     "noisy": 0.9127,
+     "noisyFinished": 28
+    },
+    {
+     "iteration": 150,
+     "points": 1.064,
+     "finished": 31,
+     "ovals": 32,
+     "pace": 1.5537,
+     "aero": 0.7399,
+     "retired": 1,
+     "noisy": 1.047,
+     "noisyFinished": 31
+    }
+   ]
+  }
+ ]
+}

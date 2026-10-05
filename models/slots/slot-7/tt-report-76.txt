@@ -1,0 +1,14 @@
+Gradient learning, time-trial gate: NASCAR · PPO first test (slot-7), generation 76
+32 ovals, 6 km each, no exploration · iteration 1900 · 1313M decisions · 2.12 h on one L4 ≈ $3.83
+(for scale: E vs F evolved full racing for 40 generations in 4.5 h on 3 machines ≈ $43)
+
+  brain       score   finished  pace     aero  against the policy
+  F·PPO       1.095   32/32   1.580×   35%  (matches the learner's own evaluation)
+  F5@40       1.349   30/32   1.081×   10%  policy better on 2/32, pace 1.576× vs 1.081× on the 30 both finished
+  E9·3@40     1.314   29/32   1.055×   11%  policy better on 3/32, pace 1.568× vs 1.055× on the 29 both finished
+  E7·8@72     1.301   29/32   1.047×    8%  policy better on 3/32, pace 1.578× vs 1.047× on the 29 both finished
+
+Rule: PASS if the policy's mean score beats every evolved brain's and it finishes at least as many ovals as the best (F5@40, 30).
+NOT YET: score 1.095 to F5@40's 1.349 (-0.254), finished 32 to 30 (+2).
+Trend: 5 report(s); still improving (a new best score in the last 3 reports).
+With its own noise it scores 1.054 (31 finished): a gap of -0.041.
